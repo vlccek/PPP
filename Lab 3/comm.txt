@@ -453,8 +453,7 @@ int main(int argc, char **argv) {
 
             // 10. Print my original rank, my new rank, my leader's rank in the MPI_COMM_WORLD
 
-            printf("Who am I? [original rank, new rank, leader] = [%2d, %2d, %2d]\n", mpiGetCommRank(MPI_COMM_WORLD),
-                   tile_rank, leader);
+            mpiPrintf(MPI_ROOT_RANK, "Who am I? [original rank, new rank, leader] = [%2d, %2d, %2d]\n", mpiGetCommRank(MPI_COMM_WORLD), tile_rank, leader);
 
             // 11. Free the groups and communicators.
 
@@ -537,12 +536,7 @@ int main(int argc, char **argv) {
 
             // 2. Define array sizes at level 1 and level 2
 
-            int level1Size = 4;
-            int level2Size = 4;
-
             // 3. Create communicators for level 1 and level 2.
-
-
 
             // 4. Allocate local arrays for level 1 and for level 2. For level 1 arrays, allocate only at those ranks.
             std::vector<int> level1A{};
