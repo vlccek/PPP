@@ -30,7 +30,7 @@
  */
 class ParallelHeatSolver : public HeatSolverBase
 {
-  public:
+public:
     /**
      * @brief Constructor - Initializes the solver. This includes:
      *        - Construct 2D grid of tiles.
@@ -42,7 +42,7 @@ class ParallelHeatSolver : public HeatSolverBase
      * @param materialProps   Parameters of material - passed into base class.
      */
     ParallelHeatSolver(const SimulationProperties& simulationProps, const MaterialProperties& materialProps);
-    
+
     /// @brief Inherit constructors from the base class.
     using HeatSolverBase::HeatSolverBase;
 
@@ -64,8 +64,8 @@ class ParallelHeatSolver : public HeatSolverBase
      */
     virtual void run(std::vector<float, AlignedAllocator<float>>& outResult) override;
 
-  protected:
-  private:
+protected:
+private:
     /**
      * @brief Get type of the code.
      * @return Returns type of the code.
@@ -118,7 +118,7 @@ class ParallelHeatSolver : public HeatSolverBase
      * @param globalData Global data to be scattered.
      * @param localData  Local data to be filled with scattered values.
      */
-    template<typename T>
+    template <typename T>
     void scatterTiles(const T* globalData, T* localData);
 
     /**
@@ -127,7 +127,7 @@ class ParallelHeatSolver : public HeatSolverBase
      * @param localData  Local data to be gathered.
      * @param globalData Global data to be filled with gathered values.
      */
-    template<typename T>
+    template <typename T>
     void gatherTiles(const T* localData, T* globalData);
 
     /**
@@ -234,6 +234,9 @@ class ParallelHeatSolver : public HeatSolverBase
 
     /// @brief Output file handle (parallel or sequential).
     Hdf5FileHandle mFileHandle{};
+
+    MPI_Comm gridComm;
+    MPI_Comm avgTempComm;
 };
 
 #endif /* PARALLEL_HEAT_SOLVER_HPP */
