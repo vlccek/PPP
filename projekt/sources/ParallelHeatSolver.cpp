@@ -29,8 +29,8 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties& simulationPro
 /**********************************************************************************************************************/
 /*                                  Call init* and alloc* methods in correct order                                    */
 /**********************************************************************************************************************/
-  
-  
+
+
 
   if(!mSimulationProps.getOutputFileName().empty())
   {
@@ -50,8 +50,8 @@ ParallelHeatSolver::~ParallelHeatSolver()
 /*                                  Call deinit* and dealloc* methods in correct order                                */
 /*                                             (should be in reverse order)                                           */
 /**********************************************************************************************************************/
-  
-  
+
+
 }
 
 std::string_view ParallelHeatSolver::getCodeType() const
@@ -65,8 +65,8 @@ void ParallelHeatSolver::initGridTopology()
 /*                          Initialize 2D grid topology using non-periodic MPI Cartesian topology.                    */
 /*                       Also create a communicator for middle column average temperature computation.                */
 /**********************************************************************************************************************/
-  
-  
+
+
 }
 
 void ParallelHeatSolver::deinitGridTopology()
@@ -83,8 +83,8 @@ void ParallelHeatSolver::initDataDistribution()
 /**********************************************************************************************************************/
 /*                 Initialize variables and MPI datatypes for data distribution (float and int).                      */
 /**********************************************************************************************************************/
-  
-  
+
+
 }
 
 void ParallelHeatSolver::deinitDataDistribution()
@@ -121,7 +121,7 @@ void ParallelHeatSolver::initHaloExchange()
 /*                            Initialize variables and MPI datatypes for halo exchange.                               */
 /*                    If mSimulationProps.isRunParallelRMA() flag is set to true, create RMA windows.                 */
 /**********************************************************************************************************************/
-  
+
 
 }
 
@@ -130,8 +130,8 @@ void ParallelHeatSolver::deinitHaloExchange()
 /**********************************************************************************************************************/
 /*                            Deinitialize variables and MPI datatypes for halo exchange.                             */
 /**********************************************************************************************************************/
-  
-  
+
+
 }
 
 template<typename T>
@@ -147,7 +147,7 @@ void ParallelHeatSolver::scatterTiles(const T* globalData, T* localData)
 /*  const MPI_Datatype localTileType  = std::is_same_v<T, int> ? localIntTileType    : localfloatTileType;            */
 /**********************************************************************************************************************/
 
-  
+
 }
 
 template<typename T>
@@ -173,7 +173,7 @@ void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp)
 /*                        Use updateTile method to compute new temperatures in halo zones.                            */
 /*                             TAKE CARE NOT TO COMPUTE THE SAME AREAS TWICE                                          */
 /**********************************************************************************************************************/
-  
+
 }
 
 void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& requests)
@@ -193,8 +193,8 @@ void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window)
 /*                       Start the non-blocking halo zones exchange using RMA communication.                          */
 /*                   Do not forget that you put/get the values to/from the target's opposite side                     */
 /**********************************************************************************************************************/
-  
-  
+
+
 }
 
 void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& requests)
@@ -203,7 +203,7 @@ void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& reques
 /*                       Wait for all halo zone exchanges to finalize using P2P communication.                        */
 /**********************************************************************************************************************/
 
-  
+
 }
 
 void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window)
@@ -249,7 +249,7 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outRes
 /*                            Compute and exchange halo zones using P2P or RMA.                                       */
 /**********************************************************************************************************************/
 
-    
+
 
 /**********************************************************************************************************************/
 /*                           Compute the rest of the tile. Use updateTile method.                                     */
@@ -314,20 +314,20 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
 /*                  Implement parallel middle column average temperature computation.                                 */
 /*                      Use OpenMP directives to accelerate the local computations.                                   */
 /**********************************************************************************************************************/
-  
-  
+
+
 
   return 0.f;
 }
 
 float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const float *globalData) const
-{  
+{
 /**********************************************************************************************************************/
 /*                  Implement sequential middle column average temperature computation.                               */
 /*                      Use OpenMP directives to accelerate the local computations.                                   */
 /**********************************************************************************************************************/
 
-  
+
 
   return 0.f;
 }
@@ -359,7 +359,7 @@ void ParallelHeatSolver::openOutputFileParallel()
 /*                          Open output HDF5 file for parallel access with alignment.                                 */
 /*      Set up faplHandle to use MPI-IO and alignment. The handle will automatically release the resource.            */
 /**********************************************************************************************************************/
-  
+
 
 
   mFileHandle = H5Fcreate(mSimulationProps.getOutputFileName(codeType).c_str(),
@@ -398,8 +398,8 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t                        
 /*                                Compute the tile offsets and sizes.                                                 */
 /*               Note that the X and Y coordinates are swapped (but data not altered).                                */
 /**********************************************************************************************************************/
-    
-    
+
+
 
     // Create new dataspace and dataset using it.
     static constexpr std::string_view dataSetName{"Temperature"};
@@ -440,8 +440,8 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t                        
 /*              Perform collective write operation, writting tiles from all processes at once.                        */
 /*                                   Set up the propListHandle variable.                                              */
 /**********************************************************************************************************************/
-    
-    
+
+
 
     H5Dwrite(dataSetHandle, H5T_NATIVE_FLOAT, memSpaceHandle, dataSpaceHandle, propListHandle, localData);
   }
