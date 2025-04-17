@@ -62,8 +62,8 @@ void ParallelHeatSolver::initGridTopology()
     /**********************************************************************************************************************/
 
     int nX, nY;
-    int periods[2] = {0, 0};
     mSimulationProps.getDecompGrid(nX, nY);
+    int periods[2] = {0, 0};
 
     int dims[2] = {nX, nY};
 
@@ -104,6 +104,42 @@ void ParallelHeatSolver::initDataDistribution()
     /**********************************************************************************************************************/
     /*                 Initialize variables and MPI datatypes for data distribution (float and int).                      */
     /**********************************************************************************************************************/
+    mGridSize = mMaterialProps.getEdgeSize() * mMaterialProps.getEdgeSize(); // grid size ^2
+
+    int nX, nY;
+    mSimulationProps.getDecompGrid(nX, nY);
+
+    mLocalTileSize[0] = mGridSize / nX;
+    mLocalTileSize[1] = mGridSize / nY;
+
+    // mby add hallo but probably no ????
+    int local_tile_width = mLocalTileSize[0];
+    int local_tile_height = mLocalTileSize[1];
+    int global_grid_width = mMaterialProps.getEdgeSize();
+
+
+    MPI_Datatype tile_layout_type;
+
+    // todo init type :)
+    MPI_Type_vector(
+        local_tile_height,
+        local_tile_width,
+        global_grid_width,
+        MPI_FLOAT,
+        &tile_layout_type
+    );
+
+    MPI_Aint float_lb, float_extent;
+    MPI_Type_get_extent(MPI_FLOAT, &float_lb, &float_extent); // Získáme velikost floatu
+
+    MPI_Type_create_resized(
+        tile_layout_type,
+        0,
+        float_extent,
+        &tileType
+    );
+
+    MPI_Type_commit(&tileType);
 }
 
 void ParallelHeatSolver::deinitDataDistribution()
@@ -111,6 +147,8 @@ void ParallelHeatSolver::deinitDataDistribution()
     /**********************************************************************************************************************/
     /*                       Deinitialize variables and MPI datatypes for data distribution.                              */
     /**********************************************************************************************************************/
+
+    MPI_Type_free(&tileType);
 }
 
 void ParallelHeatSolver::allocLocalTiles()
@@ -119,6 +157,8 @@ void ParallelHeatSolver::allocLocalTiles()
     /*            Allocate local tiles for domain map (1x), domain parameters (1x) and domain temperature (2x).           */
     /*                                               Use AlignedAllocator.                                                */
     /**********************************************************************************************************************/
+
+
 }
 
 void ParallelHeatSolver::deallocLocalTiles()
@@ -134,13 +174,54 @@ void ParallelHeatSolver::initHaloExchange()
     /*                            Initialize variables and MPI datatypes for halo exchange.                               */
     /*                    If mSimulationProps.isRunParallelRMA() flag is set to true, create RMA windows.                 */
     /**********************************************************************************************************************/
+
+
+    int nX, nY;
+    mSimulationProps.getDecompGrid(nX, nY);
+
+    int globalEdgeSize = mMaterialProps.getEdgeSize();
+
+    int haloSize = haloZoneSize;
+
+
+    int local_active_width = globalEdgeSize / nX;
+    int local_active_height = globalEdgeSize / nY;
+
+    int local_buffer_stride = local_active_width + 2 * haloSize;
+
+
+    MPI_Datatype horizontal_strip_type;
+    MPI_Type_vector(
+        haloSize,
+        local_active_width,
+        local_buffer_stride,
+        MPI_FLOAT,
+        &horizontal_strip_type
+    );
+    MPI_Type_commit(&horizontal_strip_type);
+
+    MPI_Datatype vertical_strip_type;
+    MPI_Type_vector(
+        local_active_height,
+        haloSize,
+        local_buffer_stride,
+        MPI_FLOAT,
+        &vertical_strip_type
+    );
+    MPI_Type_commit(&vertical_strip_type);
+
+    // todo add RMA
 }
+
 
 void ParallelHeatSolver::deinitHaloExchange()
 {
     /**********************************************************************************************************************/
     /*                            Deinitialize variables and MPI datatypes for halo exchange.                             */
     /**********************************************************************************************************************/
+    MPI_Type_free(&horizontal_strip_type);
+    MPI_Type_free(&vertical_strip_type);
+
 }
 
 template <typename T>

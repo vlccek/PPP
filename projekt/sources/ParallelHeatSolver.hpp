@@ -237,6 +237,16 @@ private:
 
     MPI_Comm gridComm;
     MPI_Comm avgTempComm;
+
+    int mGridSize{};
+    int mLocalTileSize[2]{};
+    MPI_Datatype tileType;
+
+
+    MPI_Datatype horizontal_strip_type;
+    MPI_Datatype vertical_strip_type;
+
+
 };
 
 #endif /* PARALLEL_HEAT_SOLVER_HPP */
