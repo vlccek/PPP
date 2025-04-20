@@ -28,8 +28,7 @@
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
  *        equation solver in 2D using 2D block grid decomposition.
  */
-class ParallelHeatSolver : public HeatSolverBase
-{
+class ParallelHeatSolver : public HeatSolverBase {
 public:
     /**
      * @brief Constructor - Initializes the solver. This includes:
@@ -41,7 +40,7 @@ public:
      * @param simulationProps Parameters of simulation - passed into base class.
      * @param materialProps   Parameters of material - passed into base class.
      */
-    ParallelHeatSolver(const SimulationProperties& simulationProps, const MaterialProperties& materialProps);
+    ParallelHeatSolver(const SimulationProperties &simulationProps, const MaterialProperties &materialProps);
 
     /// @brief Inherit constructors from the base class.
     using HeatSolverBase::HeatSolverBase;
@@ -62,7 +61,7 @@ public:
      *                  NOTE: The vector is allocated (and should be used) *ONLY*
      *                        by master process (rank 0 in MPI_COMM_WORLD)!
      */
-    virtual void run(std::vector<float, AlignedAllocator<float>>& outResult) override;
+    virtual void run(std::vector<float, AlignedAllocator<float>> &outResult) override;
 
 protected:
 private:
@@ -118,8 +117,8 @@ private:
      * @param globalData Global data to be scattered.
      * @param localData  Local data to be filled with scattered values.
      */
-    template <typename T>
-    void scatterTiles(const T* globalData, T* localData);
+    template<typename T>
+    void localDomainMap(const T *globalData, T *localData);
 
     /**
      * @brief Gather local tiles to global data.
@@ -127,35 +126,35 @@ private:
      * @param localData  Local data to be gathered.
      * @param globalData Global data to be filled with gathered values.
      */
-    template <typename T>
-    void gatherTiles(const T* localData, T* globalData);
+    template<typename T>
+    void gatherTiles(const T *localData, T *globalData);
 
     /**
      * @brief Compute temperature of the next iteration in the halo zones.
      * @param oldTemp Old temperature values.
      * @param newTemp New temperature values.
      */
-    void computeHaloZones(const float* oldTemp, float* newTemp);
+    void computeHaloZones(const float *oldTemp, float *newTemp);
 
     /**
      * @brief Start halo exchange using point-to-point communication.
      * @param localData Local data to be exchanged.
      * @param request   Array of MPI_Request objects to be filled with requests.
      */
-    void startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& request);
+    void startHaloExchangeP2P(float *localData, std::array<MPI_Request, 8> &request);
 
     /**
      * @brief Await halo exchange using point-to-point communication.
      * @param request Array of MPI_Request objects to be awaited.
      */
-    void awaitHaloExchangeP2P(std::array<MPI_Request, 8>& request);
+    void awaitHaloExchangeP2P(std::array<MPI_Request, 8> &request);
 
     /**
      * @brief Start halo exchange using RMA communication.
      * @param localData Local data to be exchanged.
      * @param window    MPI_Win object to be used for RMA communication.
      */
-    void startHaloExchangeRMA(float* localData, MPI_Win window);
+    void startHaloExchangeRMA(float *localData, MPI_Win window);
 
     /**
      * @brief Await halo exchange using RMA communication.
@@ -170,7 +169,7 @@ private:
      * @param localData Data of the local tile.
      * @return Returns average temperature over middle of all tiles in the communicator.
      */
-    float computeMiddleColumnAverageTemperatureParallel(const float* localData) const;
+    float computeMiddleColumnAverageTemperatureParallel(const float *localData) const;
 
     /**
      * @brief Computes global average temperature of middle column of the domain
@@ -179,7 +178,7 @@ private:
      * @param globalData Simulation state collected to the MASTER rank.
      * @return Returns the average temperature.
      */
-    float computeMiddleColumnAverageTemperatureSequential(const float* globalData) const;
+    float computeMiddleColumnAverageTemperatureSequential(const float *globalData) const;
 
     /**
      * @brief Opens output HDF5 file for sequential access by MASTER rank only.
@@ -195,7 +194,7 @@ private:
      * @param data       Square 2D array of edgeSize x edgeSize elements containing
      *                   simulation state to be stored in the file.
      */
-    void storeDataIntoFileSequential(hid_t fileHandle, std::size_t iteration, const float* globalData);
+    void storeDataIntoFileSequential(hid_t fileHandle, std::size_t iteration, const float *globalData);
 
     /**
      * @brief Opens output HDF5 file for parallel/cooperative access.
@@ -212,7 +211,7 @@ private:
      *                   to be stored at tile specific position in the output file.
      *                   This method skips halo zones of the tile and stores only relevant data.
      */
-    void storeDataIntoFileParallel(hid_t fileHandle, std::size_t iteration, const float* localData);
+    void storeDataIntoFileParallel(hid_t fileHandle, std::size_t iteration, const float *localData);
 
     /**
      * @brief Determines if the process should compute average temperature of the middle column.
@@ -224,7 +223,7 @@ private:
     static constexpr std::string_view codeType{"par"};
 
     /// @brief Size of the halo zone.
-    static constexpr std::size_t haloZoneSize{2};
+    static constexpr std::size_t haloZoneSize{3};
 
     /// @brief Process rank in the global communicator (MPI_COMM_WORLD).
     int mWorldRank{};
@@ -238,15 +237,40 @@ private:
     MPI_Comm gridComm;
     MPI_Comm avgTempComm;
 
-    int mGridSize{};
+    int mGridSizeEdge{};
     int mLocalTileSize[2]{};
-    MPI_Datatype tileType;
+    MPI_Datatype tileTypeFloat = MPI_DATATYPE_NULL;
+    MPI_Datatype tileTypeInt = MPI_DATATYPE_NULL;
+    MPI_Datatype m_localActiveAreaTypeInt = MPI_DATATYPE_NULL;
+    MPI_Datatype m_localActiveAreaTypeFloat = MPI_DATATYPE_NULL;
 
 
-    MPI_Datatype horizontal_strip_type;
-    MPI_Datatype vertical_strip_type;
+    MPI_Datatype horizontal_strip_type = MPI_DATATYPE_NULL;
+    MPI_Datatype vertical_strip_type = MPI_DATATYPE_NULL;
+
+    std::vector<int, AlignedAllocator<int>> mLocalTileMaterial{};
+    std::vector<float, AlignedAllocator<float>> mLocalTileMaterialProp{};
+    std::array<std::vector<float, AlignedAllocator<float>>, 2> mLocalTileTemperature{};
 
 
+    // additional
+
+    int m_size;
+
+    int myCoorsGrid[2];
+    int mTopRank, mBottomRank, mRightRank, mLeftRank;
+    MPI_Request mRequest[8] = {MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,
+                               MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,};
+    std::array<MPI_Win, 2>  m_rma_win = {MPI_WIN_NULL, MPI_WIN_NULL};
+
+
+    int rank(MPI_Comm &c) {
+        int rank;
+        MPI_Comm_rank(c, &rank);
+        return rank;
+    }
+
+    static constexpr int ROOT = 0;
 };
 
 #endif /* PARALLEL_HEAT_SOLVER_HPP */
