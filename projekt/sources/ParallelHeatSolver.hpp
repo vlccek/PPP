@@ -259,6 +259,7 @@ private:
 
     int myCoorsGrid[2];
     int mTopRank, mBottomRank, mRightRank, mLeftRank;
+
     MPI_Request mRequest[8] = {MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,
                                MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,};
     std::array<MPI_Win, 2>  m_rma_win = {MPI_WIN_NULL, MPI_WIN_NULL};

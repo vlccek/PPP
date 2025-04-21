@@ -1,5 +1,10 @@
 /**
  * @file    ParallelHeatSolver.cpp
+
+
+
+
+
  *
  * @author  Name Surname <xlogin00@fit.vutbr.cz>
  *
@@ -28,8 +33,6 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties &simulationPro
     /**********************************************************************************************************************/
     /*                                  Call init* and alloc* methods in correct order                                    */
     /**********************************************************************************************************************/
-
-    std::fprintf(stderr, "Starting object construction...\n");
 
     haloZoneSize;
     initGridTopology();
@@ -186,6 +189,11 @@ void ParallelHeatSolver::allocLocalTiles() {
 
     mLocalTileMaterial.resize(size);
     mLocalTileMaterialProp.resize(size);
+
+
+
+
+
     mLocalTileTemperature[0].resize(size);
     mLocalTileTemperature[1].resize(size);
 
@@ -439,71 +447,111 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     /*                             TAKE CARE NOT TO COMPUTE THE SAME AREAS TWICE                                          */
     /**********************************************************************************************************************/
 
-    const int local_active_width = mLocalTileSize[0];
-    const int local_active_height = mLocalTileSize[1];
-    const int h_size = haloZoneSize;
-
-    // Získání ukazatelů na parametry a mapu
-    // POZOR: Předpokládáme, že mLocalTileMaterialProp a mLocalTileMaterial jsou správně naplněny!
+    const int h = haloZoneSize; // = 2
+    const int W = mLocalTileSize[0]; // Šířka aktivní oblasti
+    const int H = mLocalTileSize[1]; // Výška aktivní oblasti
+    // Celková šířka bufferu (stride)
+    const std::size_t stride = static_cast<std::size_t>(W + 2 * h);
     const float *params = mLocalTileMaterialProp.data();
     const int *map = mLocalTileMaterial.data();
 
-    // Celková šířka (stride) lokálních bufferů
-    const std::size_t stride = static_cast<std::size_t>(local_active_width + 2 * h_size);
+    std::array<int, 4> neighbours = {mTopRank, mBottomRank, mRightRank, mLeftRank};
 
-    // ----- Výpočet okrajů -----
+    int TOP = 0;
+    int BOTTOM = 1;
+    int RIGHT = 2;
+    int LEFT = 3;
 
-    // 1. HORNÍ okraj aktivní oblasti
-    //    Začíná na [h_size][h_size], výška h_size, šířka local_active_width
-    if (local_active_height >= h_size && h_size > 0) { // Počítáme jen pokud má okraj smysl
+    // POZNÁMKA: Původní referenční kód měl zde OMP pragmy, ale ty jsou zbytečné,
+    //           protože samotná metoda updateTile už paralelizuje vnitřní smyčky.
+    //           Víceúrovňový paralelismus by zde mohl být neefektivní.
+
+    // --- Výpočet hran (bez rohů) ---
+
+    // Horní hrana (pro odeslání nahoru)
+    if (neighbours[TOP] != MPI_PROC_NULL) {
+        // Počítáme řádky h až 2h-1, sloupce 2h až h+W-h-1
         updateTile(oldTemp, newTemp, params, map,
-                   static_cast<std::size_t>(h_size),              // offsetX
-                   static_cast<std::size_t>(h_size),              // offsetY
-                   static_cast<std::size_t>(local_active_width),  // sizeX
-                   static_cast<std::size_t>(h_size),              // sizeY
+                /*offsetX*/ h + h,
+                /*offsetY*/ h,
+                /*sizeX*/   W - 2 * h, // Šířka bez levého a pravého rohu
+                /*sizeY*/   h,       // Výška okraje
                    stride);
     }
 
-    // 2. DOLNÍ okraj aktivní oblasti
-    //    Začíná na [h_size + local_active_height - h_size][h_size]
-    //    Výška h_size, šířka local_active_width
-    //    Přeskočíme, pokud je výška aktivní oblasti <= h_size (už spočítáno v kroku 1 nebo neexistuje)
-    if (local_active_height > h_size && h_size > 0) {
+    // Spodní hrana (pro odeslání dolů)
+    if (neighbours[BOTTOM] != MPI_PROC_NULL) {
+        // Počítáme řádky h+H-h až h+H-1, sloupce 2h až h+W-h-1
         updateTile(oldTemp, newTemp, params, map,
-                   static_cast<std::size_t>(h_size),                               // offsetX
-                   static_cast<std::size_t>(h_size + local_active_height - h_size), // offsetY
-                   static_cast<std::size_t>(local_active_width),                   // sizeX
-                   static_cast<std::size_t>(h_size),                               // sizeY
+                /*offsetX*/ h + h,
+                /*offsetY*/ h + H - h, // !! OPRAVA !! Začátek posledních h řádků aktivní oblasti
+                /*sizeX*/   W - 2 * h,   // Šířka bez levého a pravého rohu
+                /*sizeY*/   h,         // Výška okraje
                    stride);
     }
 
-    // 3. LEVÝ okraj aktivní oblasti (BEZ rohů)
-    //    Začíná na [h_size + h_size][h_size] (pod horním okrajem)
-    //    Výška local_active_height - 2*h_size (jen prostřední část)
-    //    Šířka h_size
-    //    Počítáme jen pokud je výška prostřední části > 0
-    int middleHeight = local_active_height - 2 * h_size;
-    if (middleHeight > 0 && h_size > 0) { // Také zkontrolujeme h_size > 0
+    // Levá hrana (pro odeslání doleva)
+    if (neighbours[LEFT] != MPI_PROC_NULL) {
+        // Počítáme sloupce h až 2h-1, řádky 2h až h+H-h-1
         updateTile(oldTemp, newTemp, params, map,
-                   static_cast<std::size_t>(h_size),              // offsetX
-                   static_cast<std::size_t>(h_size + h_size),     // offsetY (pod horním okrajem)
-                   static_cast<std::size_t>(h_size),              // sizeX (šířka levého proužku)
-                   static_cast<std::size_t>(middleHeight),        // sizeY (výška prostřední části)
+                /*offsetX*/ h,
+                /*offsetY*/ h + h,
+                /*sizeX*/   h,         // Šířka okraje
+                /*sizeY*/   H - 2 * h,   // Výška bez horního a dolního rohu
                    stride);
     }
 
-    // 4. PRAVÝ okraj aktivní oblasti (BEZ rohů)
-    //    Začíná na [h_size + h_size][h_size + local_active_width - h_size]
-    //    Výška local_active_height - 2*h_size (jen prostřední část)
-    //    Šířka h_size
-    //    Přeskočíme, pokud je šířka aktivní oblasti <= h_size (už spočítáno nebo neexistuje)
-    //    Počítáme jen pokud je výška prostřední části > 0
-    if (middleHeight > 0 && local_active_width > h_size && h_size > 0) { // Zkontrolujeme i šířku
+    // Pravá hrana (pro odeslání doprava)
+    if (neighbours[RIGHT] != MPI_PROC_NULL) {
+        // Počítáme sloupce h+W-h až h+W-1, řádky 2h až h+H-h-1
         updateTile(oldTemp, newTemp, params, map,
-                   static_cast<std::size_t>(h_size + local_active_width - h_size), // offsetX
-                   static_cast<std::size_t>(h_size + h_size),                       // offsetY (pod horním okrajem)
-                   static_cast<std::size_t>(h_size),                                // sizeX (šířka pravého proužku)
-                   static_cast<std::size_t>(middleHeight),                          // sizeY (výška prostřední části)
+                /*offsetX*/ h + W - h, // !! OPRAVA !! Začátek posledních h sloupců aktivní oblasti
+                /*offsetY*/ h + h,
+                /*sizeX*/   h,         // Šířka okraje
+                /*sizeY*/   H - 2 * h,   // Výška bez horního a dolního rohu
+                   stride);
+    }
+
+    // --- Výpočet rohů ---
+
+    // Levý horní roh
+    if (neighbours[LEFT] != MPI_PROC_NULL && neighbours[TOP] != MPI_PROC_NULL) {
+        // Počítáme oblast [h..2h-1][h..2h-1]
+        updateTile(oldTemp, newTemp, params, map,
+                /*offsetX*/ h,
+                /*offsetY*/ h,
+                /*sizeX*/   h,
+                /*sizeY*/   h,
+                   stride);
+    }
+    // Pravý horní roh
+    if (neighbours[RIGHT] != MPI_PROC_NULL && neighbours[TOP] != MPI_PROC_NULL) {
+        // Počítáme oblast [h+W-h..h+W-1][h..2h-1]
+        updateTile(oldTemp, newTemp, params, map,
+                /*offsetX*/ h + W - h, // !! OPRAVA !!
+                /*offsetY*/ h,
+                /*sizeX*/   h,
+                /*sizeY*/   h,
+                   stride);
+    }
+    // Pravý dolní roh
+    if (neighbours[RIGHT] != MPI_PROC_NULL && neighbours[BOTTOM] != MPI_PROC_NULL) {
+        // Počítáme oblast [h+W-h..h+W-1][h+H-h..h+H-1]
+        updateTile(oldTemp, newTemp, params, map,
+                /*offsetX*/ h + W - h, // !! OPRAVA !!
+                /*offsetY*/ h + H - h, // !! OPRAVA !!
+                /*sizeX*/   h,
+                /*sizeY*/   h,
+                   stride);
+    }
+    // Levý dolní roh
+    if (neighbours[LEFT] != MPI_PROC_NULL && neighbours[BOTTOM] != MPI_PROC_NULL) {
+        // Počítáme oblast [h..2h-1][h+H-h..h+H-1]
+        updateTile(oldTemp, newTemp, params, map,
+                /*offsetX*/ h,
+                /*offsetY*/ h + H - h, // !! OPRAVA !!
+                /*sizeX*/   h,
+                /*sizeY*/   h,
                    stride);
     }
 }
@@ -640,7 +688,7 @@ void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window) {
 
 void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outResult) {
     std::array<MPI_Request, 8> requestsP2P{};
-    std::array<MPI_Request, 8> paramsRequests;
+    std::array<MPI_Request, 8> paramsRequests{};
 
     /**********************************************************************************************************************/
     /*                                         Scatter initial data.                                                      */
@@ -656,7 +704,6 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
         globalDomainMap = mMaterialProps.getDomainMap().data();
     }
 
-    // print globalTemperatures
 
     // Scatterujeme do 'newIdx', protože to bude výsledek "iterace -1"
     float *localTemperatureBuffer = mLocalTileTemperature[0].data();
@@ -761,6 +808,7 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
             awaitHaloExchangeRMA(m_rma_win[newIdx]);
         }
 
+
         if (shouldStoreData(iter)) {
             /**********************************************************************************************************************/
             /*                          Store the data into the output file using parallel or sequential IO.                      */
@@ -785,7 +833,6 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
 
         }
 
-
     }
 
     const std::size_t resIdx = mSimulationProps.getNumIterations() % 2; // Index of the buffer with final temperatures
@@ -796,16 +843,16 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
     /*                                     Gather final domain temperature.                                               */
     /**********************************************************************************************************************/
 
-    // gatherTiles<float>(mLocalTileTemperature[resIdx].data(), outResult.data());
+    gatherTiles<float>(mLocalTileTemperature[resIdx].data(), outResult.data());
 
     /**********************************************************************************************************************/
     /*           Compute (sequentially) and report final middle column temperature average and print final report.        */
     /**********************************************************************************************************************/
 
-
-    // auto avg = computeMiddleColumnAverageTemperatureSequential( outResult.data());
-
-    //  printFinalReport(elapsedTime, avg);
+    if (mWorldRank == 0) {
+        auto avg = computeMiddleColumnAverageTemperatureSequential(outResult.data());
+        printFinalReport(elapsedTime, avg);
+    }
 
 }
 
@@ -897,18 +944,34 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
     /**********************************************************************************************************************/
 
 
-    float middleColAvgTemp = 0.0f;
-    const std::size_t edgeSize = mMaterialProps.getEdgeSize();
-    const std::size_t middleColIndex = edgeSize / 2;
-    // mMaterialProps.getGridPointCount();
-
-#pragma omp parallel for simd reduction(+:middleColAvgTemp) schedule(static)
-    for (std::size_t i = 0; i < edgeSize; ++i) {
-        std::size_t index = i * edgeSize + middleColIndex;
-        middleColAvgTemp += globalData[index];
+    // Zkontroluj, zda máme platná data (mělo by být voláno jen na rootu!)
+    if (globalData == nullptr) {
+        // Můžeš vrátit nějakou chybovou hodnotu nebo vyhodit výjimku,
+        // ale ideálně by se sem kód na ne-root procesu neměl dostat.
+        // fprintf(stderr, "ERROR: computeMiddleColumnAverageTemperatureSequential called with nullptr!\n");
+        return -1.0f; // Nebo jiná indikace chyby
     }
 
-    return middleColAvgTemp / static_cast<float>(edgeSize);
+    double middleColSum = 0.0; // Použij double pro sumu pro lepší přesnost
+    const std::size_t edgeSize = mMaterialProps.getEdgeSize();
+
+    // Zkontroluj, zda edgeSize je > 0, aby se předešlo dělení nulou
+    if (edgeSize == 0) {
+        return 0.0f; // Prázdná mřížka
+    }
+
+    const std::size_t middleColIndex = edgeSize / 2; // Index prostředního sloupce
+
+    // POZOR: OpenMP zde dává smysl, pokud je edgeSize velké a funkce je volána jen na rootu.
+#pragma omp parallel for reduction(+:middleColSum) schedule(static)
+    for (std::size_t y = 0; y < edgeSize; ++y) { // Iterujeme přes řádky
+        // Spočítáme index bodu v prostředním sloupci pro daný řádek y
+        std::size_t index = y * edgeSize + middleColIndex;
+        middleColSum += globalData[index];
+    }
+
+    // Vypočítáme průměr dělením počtem bodů ve sloupci (což je edgeSize)
+    return static_cast<float>(middleColSum / edgeSize);
 }
 
 void ParallelHeatSolver::openOutputFileSequential() {
