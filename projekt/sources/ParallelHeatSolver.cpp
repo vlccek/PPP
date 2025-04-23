@@ -1,16 +1,13 @@
 /**
  * @file    ParallelHeatSolver.cpp
-
-
-
-
-
  *
- * @author  Name Surname <xlogin00@fit.vutbr.cz>
+ * @author  Jakub Vlk <xvlkja07@fit.vutbr.cz>
  *
  * @brief   Course: PPP 2023/2024 - Project 1
  *          This file contains implementation of parallel heat equation solver
  *          using MPI/OpenMP hybrid approach.
+ *
+ *          Disclaimer -- contains "hovnokod"
  *
  * @date    2024-02-23
  */
@@ -24,9 +21,9 @@
 
 #include "ParallelHeatSolver.hpp"
 
-ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties &simulationProps,
-                                       const MaterialProperties &materialProps)
-        : HeatSolverBase(simulationProps, materialProps) {
+ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties& simulationProps,
+                                       const MaterialProperties& materialProps)
+    : HeatSolverBase(simulationProps, materialProps) {
     MPI_Comm_size(MPI_COMM_WORLD, &mWorldSize);
     MPI_Comm_rank(MPI_COMM_WORLD, &mWorldRank);
 
@@ -34,7 +31,6 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties &simulationPro
     /*                                  Call init* and alloc* methods in correct order                                    */
     /**********************************************************************************************************************/
 
-    haloZoneSize;
     initGridTopology();
     initDataDistribution();
     allocLocalTiles();
@@ -49,7 +45,8 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties &simulationPro
 
         if (mSimulationProps.useParallelIO()) {
             mFileHandle;
-        } else {
+        }
+        else {
             if (mWorldRank == 0) {
                 mFileHandle = H5Fcreate(simulationProps.getOutputFileName().c_str(), H5F_ACC_TRUNC, H5P_DEFAULT,
                                         H5P_DEFAULT);
@@ -68,7 +65,6 @@ ParallelHeatSolver::~ParallelHeatSolver() {
     deallocLocalTiles();
     deinitDataDistribution();
     deinitGridTopology();
-
 }
 
 std::string_view ParallelHeatSolver::getCodeType() const {
@@ -88,6 +84,7 @@ void ParallelHeatSolver::initGridTopology() {
     int dims[ndims] = {nX, nY};
 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &gridComm); // reorder for better performance
+    MPI_Comm_set_name(gridComm, "GridComm");
 
     int my_grid_rank;
     MPI_Comm_rank(gridComm, &my_grid_rank);
@@ -103,7 +100,6 @@ void ParallelHeatSolver::initGridTopology() {
 
     // Rozdělení komunikátoru gridComm
     MPI_Comm_split(gridComm, color, key, &avgTempComm);
-
 }
 
 void ParallelHeatSolver::deinitGridTopology() {
@@ -191,12 +187,8 @@ void ParallelHeatSolver::allocLocalTiles() {
     mLocalTileMaterialProp.resize(size);
 
 
-
-
-
     mLocalTileTemperature[0].resize(size);
     mLocalTileTemperature[1].resize(size);
-
 }
 
 void ParallelHeatSolver::deallocLocalTiles() {
@@ -227,70 +219,69 @@ void ParallelHeatSolver::initHaloExchange() {
     int local_buffer_stride = local_active_width + 2 * haloSize;
 
     MPI_Type_vector(
-            haloSize,
-            local_active_width,
-            local_buffer_stride,
-            MPI_FLOAT,
-            &horizontal_strip_type
+        haloSize,
+        local_active_width,
+        local_buffer_stride,
+        MPI_FLOAT,
+        &horizontal_strip_type
     );
     MPI_Type_commit(&horizontal_strip_type);
 
     MPI_Type_vector(
-            local_active_height,
-            haloSize,
-            local_buffer_stride,
-            MPI_FLOAT,
-            &vertical_strip_type
+        local_active_height,
+        haloSize,
+        local_buffer_stride,
+        MPI_FLOAT,
+        &vertical_strip_type
     );
     MPI_Type_commit(&vertical_strip_type);
 
-    if (!mSimulationProps.isRunParallelRMA()) {
-        MPI_Cart_shift(
-                gridComm,
-                0, // X axis
-                1, // shift by 1
-                &mLeftRank,
-                &mRightRank
-        );
-        MPI_Cart_shift(
-                gridComm,
-                1, // Y axis
-                1, // shift by 1
-                &mTopRank,
-                &mBottomRank
-        );
-    } else {
 
-        MPI_Aint window_size_bytes = (MPI_Aint) (local_active_width + 2 * haloZoneSize)
-                                     * (MPI_Aint) (local_active_height + 2 * haloZoneSize)
-                                     * sizeof(float);
+    MPI_Cart_shift(
+        gridComm,
+        0, // X axis
+        1, // shift by 1
+        &mLeftRank,
+        &mRightRank
+    );
+    MPI_Cart_shift(
+        gridComm,
+        1, // Y axis
+        1, // shift by 1
+        &mTopRank,
+        &mBottomRank
+    );
 
-        float *window_base_ptr = mLocalTileTemperature[0].data(); // Ukazatel na data vektoru
 
-        // Vytvoření okna
-        // Použijeme MPI_Win_create, protože paměť už byla alokována pomocí std::vector
-        MPI_Win_create(
-                window_base_ptr,       // Adresa začátku paměti pro okno
-                window_size_bytes,     // Velikost zpřístupněné paměti v bytech
-                sizeof(float),         // Displacement unit - velikost základního prvku pro posunutí
-                MPI_INFO_NULL,         // Info objekt (nepoužíváme speciální hinty)
-                gridComm,              // Komunikátor asociovaný s oknem (musí být ten s topologií!)
-                &m_rma_win[0]           // Ukazatel na handle okna (členská proměnná)
-        );
+    MPI_Aint window_size_bytes = (MPI_Aint)(local_active_width + 2 * haloZoneSize)
+        * (MPI_Aint)(local_active_height + 2 * haloZoneSize)
+        * sizeof(float);
 
-        window_base_ptr = mLocalTileTemperature[1].data(); // Ukazatel na data vektoru
+    float* window_base_ptr = mLocalTileTemperature[0].data(); // Ukazatel na data vektoru
 
-        // Vytvoření okna
-        // Použijeme MPI_Win_create, protože paměť už byla alokována pomocí std::vector
-        MPI_Win_create(
-                window_base_ptr,       // Adresa začátku paměti pro okno
-                window_size_bytes,     // Velikost zpřístupněné paměti v bytech
-                sizeof(float),         // Displacement unit - velikost základního prvku pro posunutí
-                MPI_INFO_NULL,         // Info objekt (nepoužíváme speciální hinty)
-                gridComm,              // Komunikátor asociovaný s oknem (musí být ten s topologií!)
-                &m_rma_win[1]             // Ukazatel na handle okna (členská proměnná)
-        );
-    }
+    // Vytvoření okna
+    // Použijeme MPI_Win_create, protože paměť už byla alokována pomocí std::vector
+    MPI_Win_create(
+        window_base_ptr, // Adresa začátku paměti pro okno
+        window_size_bytes, // Velikost zpřístupněné paměti v bytech
+        sizeof(float), // Displacement unit - velikost základního prvku pro posunutí
+        MPI_INFO_NULL, // Info objekt (nepoužíváme speciální hinty)
+        gridComm, // Komunikátor asociovaný s oknem (musí být ten s topologií!)
+        &m_rma_win[0] // Ukazatel na handle okna (členská proměnná)
+    );
+
+    window_base_ptr = mLocalTileTemperature[1].data(); // Ukazatel na data vektoru
+
+    // Vytvoření okna
+    // Použijeme MPI_Win_create, protože paměť už byla alokována pomocí std::vector
+    MPI_Win_create(
+        window_base_ptr, // Adresa začátku paměti pro okno
+        window_size_bytes, // Velikost zpřístupněné paměti v bytech
+        sizeof(float), // Displacement unit - velikost základního prvku pro posunutí
+        MPI_INFO_NULL, // Info objekt (nepoužíváme speciální hinty)
+        gridComm, // Komunikátor asociovaný s oknem (musí být ten s topologií!)
+        &m_rma_win[1] // Ukazatel na handle okna (členská proměnná)
+    );
 }
 
 
@@ -301,18 +292,19 @@ void ParallelHeatSolver::deinitHaloExchange() {
     MPI_Type_free(&horizontal_strip_type);
     MPI_Type_free(&vertical_strip_type);
 
-    if (m_rma_win[0] != MPI_WIN_NULL) { // Kontrola pro jistotu
+    if (m_rma_win[0] != MPI_WIN_NULL) {
+        // Kontrola pro jistotu
         MPI_Win_free(&m_rma_win[0]);
     }
 
-    if (m_rma_win[1] != MPI_WIN_NULL) { // Kontrola pro jistotu
+    if (m_rma_win[1] != MPI_WIN_NULL) {
+        // Kontrola pro jistotu
         MPI_Win_free(&m_rma_win[1]);
     }
-
 }
 
-template<typename T>
-void ParallelHeatSolver::localDomainMap(const T *globalData, T *localData) {
+template <typename T>
+void ParallelHeatSolver::localDomainMap(const T* globalData, T* localData) {
     static_assert(std::is_same_v<T, int> || std::is_same_v<T, float>, "Unsupported scatter datatype!");
 
     /**********************************************************************************************************************/
@@ -324,8 +316,9 @@ void ParallelHeatSolver::localDomainMap(const T *globalData, T *localData) {
     /**********************************************************************************************************************/
     const MPI_Datatype baseMpiType = std::is_same_v<T, int> ? MPI_INT : MPI_FLOAT;
     const MPI_Datatype resizedTileType = std::is_same_v<T, int> ? tileTypeInt : tileTypeFloat;
-    const MPI_Datatype localRecvType = std::is_same_v<T, int> ? m_localActiveAreaTypeInt
-                                                              : m_localActiveAreaTypeFloat;
+    const MPI_Datatype localRecvType = std::is_same_v<T, int>
+                                           ? m_localActiveAreaTypeInt
+                                           : m_localActiveAreaTypeFloat;
 
 
     std::vector<int> sendcounts;
@@ -336,7 +329,7 @@ void ParallelHeatSolver::localDomainMap(const T *globalData, T *localData) {
     int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
     int offset = haloZoneSize * localBufferWidth + haloZoneSize;
     // localBufferRawPtr ukazuje na začátek celého lokálního bufferu
-    T *activeAreaStartPtr = localData + offset;
+    T* activeAreaStartPtr = localData + offset;
 
     // 3. Root proces připraví sendcounts a displs
     if (rank(gridComm) == ROOT) {
@@ -365,22 +358,20 @@ void ParallelHeatSolver::localDomainMap(const T *globalData, T *localData) {
 
     // 4. Zavolej MPI_Scatterv
     MPI_Scatterv(
-            globalData,
-            sendcounts.data(),
-            displs.data(),
-            resizedTileType,      // Typ ODESÍLANÉ jednotky (z globálu)
-            activeAreaStartPtr,   // Ukazatel na začátek aktivní oblasti v lokálním bufferu
-            1,                    // !!!!! Přijímáme 1 blok tohoto nového typu !!!!!
-            localRecvType,        // !!!!! Typ popisující layout PŘIJÍMANÝCH dat v lokálním bufferu !!!!!
-            ROOT,
-            gridComm
+        globalData,
+        sendcounts.data(),
+        displs.data(),
+        resizedTileType, // Typ ODESÍLANÉ jednotky (z globálu)
+        activeAreaStartPtr, // Ukazatel na začátek aktivní oblasti v lokálním bufferu
+        1, // !!!!! Přijímáme 1 blok tohoto nového typu !!!!!
+        localRecvType, // !!!!! Typ popisující layout PŘIJÍMANÝCH dat v lokálním bufferu !!!!!
+        ROOT,
+        gridComm
     );
-
-
 }
 
-template<typename T>
-void ParallelHeatSolver::gatherTiles(const T *localData, T *globalData) {
+template <typename T>
+void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData) {
     static_assert(std::is_same_v<T, int> || std::is_same_v<T, float>, "Unsupported gather datatype!");
 
     /**********************************************************************************************************************/
@@ -392,19 +383,21 @@ void ParallelHeatSolver::gatherTiles(const T *localData, T *globalData) {
     /**********************************************************************************************************************/
     const MPI_Datatype baseMpiType = std::is_same_v<T, int> ? MPI_INT : MPI_FLOAT;
     const MPI_Datatype recvTypeOnRoot = std::is_same_v<T, int> ? tileTypeInt : tileTypeFloat;
-    const MPI_Datatype sendTypeFromLocal = std::is_same_v<T, int> ? m_localActiveAreaTypeInt
-                                                                  : m_localActiveAreaTypeFloat;
+    const MPI_Datatype sendTypeFromLocal = std::is_same_v<T, int>
+                                               ? m_localActiveAreaTypeInt
+                                               : m_localActiveAreaTypeFloat;
     int globalWidth = mMaterialProps.getEdgeSize();
 
     std::vector<int> recvcounts; // Pouze na rootu
-    std::vector<int> displs;     // Pouze na rootu
+    std::vector<int> displs; // Pouze na rootu
 
     // Výpočet ukazatele na začátek aktivní oblasti pro odeslání
     int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
     int offset = haloZoneSize * localBufferWidth + haloZoneSize;
-    const T *activeAreaStartPtr = localData + offset; // Ukazatel pro čtení z aktivní oblasti
+    const T* activeAreaStartPtr = localData + offset; // Ukazatel pro čtení z aktivní oblasti
 
-    if (mWorldRank == ROOT) { // Použijte mWorldRank nebo rank(gridComm)
+    if (mWorldRank == ROOT) {
+        // Použijte mWorldRank nebo rank(gridComm)
         recvcounts.resize(m_size);
         displs.resize(m_size);
 
@@ -428,19 +421,19 @@ void ParallelHeatSolver::gatherTiles(const T *localData, T *globalData) {
 
     // Zavolej MPI_Gatherv
     MPI_Gatherv(
-            activeAreaStartPtr,   // sendbuf: Ukazatel na začátek AKTIVNÍ oblasti pro odeslání
-            1,                    // sendcount: Posíláme 1 blok typu sendTypeFromLocal
-            sendTypeFromLocal,    // sendtype: Typ popisující AKTIVNÍ oblast v lokálním bufferu
-            globalData,           // recvbuf: Buffer na rootu
-            recvcounts.data(),    // recvcounts: Pole počtů (1) na rootu
-            displs.data(),        // displs: Pole posunutí v globálním bufferu na rootu
-            recvTypeOnRoot,       // recvtype: Typ popisující DLAŽDICI v globálním bufferu
-            ROOT,                 // Rank root procesu
-            gridComm              // Komunikátor mřížky
+        activeAreaStartPtr, // sendbuf: Ukazatel na začátek AKTIVNÍ oblasti pro odeslání
+        1, // sendcount: Posíláme 1 blok typu sendTypeFromLocal
+        sendTypeFromLocal, // sendtype: Typ popisující AKTIVNÍ oblast v lokálním bufferu
+        globalData, // recvbuf: Buffer na rootu
+        recvcounts.data(), // recvcounts: Pole počtů (1) na rootu
+        displs.data(), // displs: Pole posunutí v globálním bufferu na rootu
+        recvTypeOnRoot, // recvtype: Typ popisující DLAŽDICI v globálním bufferu
+        ROOT, // Rank root procesu
+        gridComm // Komunikátor mřížky
     );
 }
 
-void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) {
+void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp) {
     /**********************************************************************************************************************/
     /*  Compute new temperatures in halo zones, so that copy operations can be overlapped with inner region computation.  */
     /*                        Use updateTile method to compute new temperatures in halo zones.                            */
@@ -452,8 +445,8 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     const int H = mLocalTileSize[1]; // Výška aktivní oblasti
     // Celková šířka bufferu (stride)
     const std::size_t stride = static_cast<std::size_t>(W + 2 * h);
-    const float *params = mLocalTileMaterialProp.data();
-    const int *map = mLocalTileMaterial.data();
+    const float* params = mLocalTileMaterialProp.data();
+    const int* map = mLocalTileMaterial.data();
 
     std::array<int, 4> neighbours = {mTopRank, mBottomRank, mRightRank, mLeftRank};
 
@@ -472,10 +465,10 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     if (neighbours[TOP] != MPI_PROC_NULL) {
         // Počítáme řádky h až 2h-1, sloupce 2h až h+W-h-1
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h + h,
-                /*offsetY*/ h,
-                /*sizeX*/   W - 2 * h, // Šířka bez levého a pravého rohu
-                /*sizeY*/   h,       // Výška okraje
+                   /*offsetX*/ h + h,
+                   /*offsetY*/ h,
+                   /*sizeX*/ W - 2 * h, // Šířka bez levého a pravého rohu
+                   /*sizeY*/ h, // Výška okraje
                    stride);
     }
 
@@ -483,10 +476,10 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     if (neighbours[BOTTOM] != MPI_PROC_NULL) {
         // Počítáme řádky h+H-h až h+H-1, sloupce 2h až h+W-h-1
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h + h,
-                /*offsetY*/ h + H - h, // !! OPRAVA !! Začátek posledních h řádků aktivní oblasti
-                /*sizeX*/   W - 2 * h,   // Šířka bez levého a pravého rohu
-                /*sizeY*/   h,         // Výška okraje
+                   /*offsetX*/ h + h,
+                   /*offsetY*/ h + H - h, // !! OPRAVA !! Začátek posledních h řádků aktivní oblasti
+                   /*sizeX*/ W - 2 * h, // Šířka bez levého a pravého rohu
+                   /*sizeY*/ h, // Výška okraje
                    stride);
     }
 
@@ -494,10 +487,10 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     if (neighbours[LEFT] != MPI_PROC_NULL) {
         // Počítáme sloupce h až 2h-1, řádky 2h až h+H-h-1
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h,
-                /*offsetY*/ h + h,
-                /*sizeX*/   h,         // Šířka okraje
-                /*sizeY*/   H - 2 * h,   // Výška bez horního a dolního rohu
+                   /*offsetX*/ h,
+                   /*offsetY*/ h + h,
+                   /*sizeX*/ h, // Šířka okraje
+                   /*sizeY*/ H - 2 * h, // Výška bez horního a dolního rohu
                    stride);
     }
 
@@ -505,10 +498,10 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     if (neighbours[RIGHT] != MPI_PROC_NULL) {
         // Počítáme sloupce h+W-h až h+W-1, řádky 2h až h+H-h-1
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h + W - h, // !! OPRAVA !! Začátek posledních h sloupců aktivní oblasti
-                /*offsetY*/ h + h,
-                /*sizeX*/   h,         // Šířka okraje
-                /*sizeY*/   H - 2 * h,   // Výška bez horního a dolního rohu
+                   /*offsetX*/ h + W - h, // !! OPRAVA !! Začátek posledních h sloupců aktivní oblasti
+                   /*offsetY*/ h + h,
+                   /*sizeX*/ h, // Šířka okraje
+                   /*sizeY*/ H - 2 * h, // Výška bez horního a dolního rohu
                    stride);
     }
 
@@ -518,45 +511,45 @@ void ParallelHeatSolver::computeHaloZones(const float *oldTemp, float *newTemp) 
     if (neighbours[LEFT] != MPI_PROC_NULL && neighbours[TOP] != MPI_PROC_NULL) {
         // Počítáme oblast [h..2h-1][h..2h-1]
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h,
-                /*offsetY*/ h,
-                /*sizeX*/   h,
-                /*sizeY*/   h,
+                   /*offsetX*/ h,
+                   /*offsetY*/ h,
+                   /*sizeX*/ h,
+                   /*sizeY*/ h,
                    stride);
     }
     // Pravý horní roh
     if (neighbours[RIGHT] != MPI_PROC_NULL && neighbours[TOP] != MPI_PROC_NULL) {
         // Počítáme oblast [h+W-h..h+W-1][h..2h-1]
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h + W - h, // !! OPRAVA !!
-                /*offsetY*/ h,
-                /*sizeX*/   h,
-                /*sizeY*/   h,
+                   /*offsetX*/ h + W - h, // !! OPRAVA !!
+                   /*offsetY*/ h,
+                   /*sizeX*/ h,
+                   /*sizeY*/ h,
                    stride);
     }
     // Pravý dolní roh
     if (neighbours[RIGHT] != MPI_PROC_NULL && neighbours[BOTTOM] != MPI_PROC_NULL) {
         // Počítáme oblast [h+W-h..h+W-1][h+H-h..h+H-1]
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h + W - h, // !! OPRAVA !!
-                /*offsetY*/ h + H - h, // !! OPRAVA !!
-                /*sizeX*/   h,
-                /*sizeY*/   h,
+                   /*offsetX*/ h + W - h, // !! OPRAVA !!
+                   /*offsetY*/ h + H - h, // !! OPRAVA !!
+                   /*sizeX*/ h,
+                   /*sizeY*/ h,
                    stride);
     }
     // Levý dolní roh
     if (neighbours[LEFT] != MPI_PROC_NULL && neighbours[BOTTOM] != MPI_PROC_NULL) {
         // Počítáme oblast [h..2h-1][h+H-h..h+H-1]
         updateTile(oldTemp, newTemp, params, map,
-                /*offsetX*/ h,
-                /*offsetY*/ h + H - h, // !! OPRAVA !!
-                /*sizeX*/   h,
-                /*sizeY*/   h,
+                   /*offsetX*/ h,
+                   /*offsetY*/ h + H - h, // !! OPRAVA !!
+                   /*sizeX*/ h,
+                   /*sizeY*/ h,
                    stride);
     }
 }
 
-void ParallelHeatSolver::startHaloExchangeP2P(float *localData, std::array<MPI_Request, 8> &requests) {
+void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_Request, 8>& requests) {
     /**********************************************************************************************************************/
     /*                       Start the non-blocking halo zones exchange using P2P communication.                          */
     /*                         Use the requests array to return the requests from the function.                           */
@@ -575,27 +568,26 @@ void ParallelHeatSolver::startHaloExchangeP2P(float *localData, std::array<MPI_R
 
 
     // --- 1. Komunikace s HORNÍM sousedem (mTopRank) ---
-    float *sendPtrTop = localData + haloSize * localBufferWidth + haloSize; // [h][h] - OK
-    float *recvPtrTop = localData + haloSize; // [0][h] - OK
+    float* sendPtrTop = localData + haloSize * localBufferWidth + haloSize; // [h][h] - OK
+    float* recvPtrTop = localData + haloSize; // [0][h] - OK
 
     MPI_Irecv(recvPtrTop, 1, horizontal_strip_type, mTopRank, recv_tag, gridComm, &requests[0]);
     MPI_Isend(sendPtrTop, 1, horizontal_strip_type, mTopRank, send_tag, gridComm, &requests[1]);
 
     // --- 2. Komunikace s DOLNÍM sousedem (mBottomRank) ---
-    // ========= OPRAVA ZDE ==========
     // Ukazatel na začátek PRVNÍHO řádku DOLNÍHO okrajového bloku (výška haloSize) v aktivní oblasti
     // Řádek má index: haloSize + local_active_height - haloSize
-    float *sendPtrBottom =
-            localData + (haloSize + local_active_height - haloSize) * localBufferWidth + haloSize; // [h+H-h][h]
+    float* sendPtrBottom =
+        localData + (local_active_height) * localBufferWidth + haloSize; // [h+H-h][h]
     // ===============================
-    float *recvPtrBottom = localData + (haloSize + local_active_height) * localBufferWidth + haloSize; // [h+H][h] - OK
+    float* recvPtrBottom = localData + (haloSize + local_active_height) * localBufferWidth + haloSize; // [h+H][h] - OK
 
     MPI_Irecv(recvPtrBottom, 1, horizontal_strip_type, mBottomRank, recv_tag, gridComm, &requests[2]);
     MPI_Isend(sendPtrBottom, 1, horizontal_strip_type, mBottomRank, send_tag, gridComm, &requests[3]);
 
     // --- 3. Komunikace s LEVÝM sousedem (mLeftRank) ---
-    float *sendPtrLeft = localData + haloSize * localBufferWidth + haloSize; // [h][h] - OK
-    float *recvPtrLeft = localData + haloSize * localBufferWidth; // [h][0] - OK
+    float* sendPtrLeft = localData + haloSize * localBufferWidth + haloSize; // [h][h] - OK
+    float* recvPtrLeft = localData + haloSize * localBufferWidth; // [h][0] - OK
 
     MPI_Irecv(recvPtrLeft, 1, vertical_strip_type, mLeftRank, recv_tag, gridComm, &requests[4]);
     MPI_Isend(sendPtrLeft, 1, vertical_strip_type, mLeftRank, send_tag, gridComm, &requests[5]);
@@ -604,17 +596,16 @@ void ParallelHeatSolver::startHaloExchangeP2P(float *localData, std::array<MPI_R
     // ========= OPRAVA ZDE ==========
     // Ukazatel na začátek PRVNÍHO sloupce PRAVÉHO okrajového bloku (šířka haloSize) v aktivní oblasti
     // Sloupec má index: haloSize + local_active_width - haloSize
-    float *sendPtrRight =
-            localData + haloSize * localBufferWidth + (haloSize + local_active_width - haloSize); // [h][h+W-h]
+    float* sendPtrRight =
+        localData + haloSize * localBufferWidth + (haloSize + local_active_width - haloSize); // [h][h+W-h]
     // ===============================
-    float *recvPtrRight = localData + haloSize * localBufferWidth + (haloSize + local_active_width); // [h][h+W] - OK
+    float* recvPtrRight = localData + haloSize * localBufferWidth + (haloSize + local_active_width); // [h][h+W] - OK
 
     MPI_Irecv(recvPtrRight, 1, vertical_strip_type, mRightRank, recv_tag, gridComm, &requests[6]);
     MPI_Isend(sendPtrRight, 1, vertical_strip_type, mRightRank, send_tag, gridComm, &requests[7]);
-
 }
 
-void ParallelHeatSolver::startHaloExchangeRMA(float *localData, MPI_Win window) {
+void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) {
     /**********************************************************************************************************************/
     /*                       Start the non-blocking halo zones exchange using RMA communication.                          */
     /*                   Do not forget that you put/get the values to/from the target's opposite side                     */
@@ -625,15 +616,15 @@ void ParallelHeatSolver::startHaloExchangeRMA(float *localData, MPI_Win window) 
     int haloSize = haloZoneSize;
     int localBufferWidth = local_active_width + 2 * haloSize; // Celková šířka lokálního bufferu
 
-    MPI_Aint lbw = (MPI_Aint) localBufferWidth;
-    MPI_Aint h = (MPI_Aint) haloSize;
-    MPI_Aint H = (MPI_Aint) local_active_height;
-    MPI_Aint W = (MPI_Aint) local_active_width;
+    MPI_Aint lbw = (MPI_Aint)localBufferWidth;
+    MPI_Aint h = (MPI_Aint)haloSize;
+    MPI_Aint H = (MPI_Aint)local_active_height;
+    MPI_Aint W = (MPI_Aint)local_active_width;
 
     // --- Komunikace s LEVÝM sousedem (mLeftRank) ---
     if (mLeftRank != MPI_PROC_NULL) {
-        float *origin_addr = localData + h * lbw + h; // [h][h] - OK
-        MPI_Aint target_disp = h * lbw + h + W;      // [h][h+W] - OK
+        float* origin_addr = localData + h * lbw + h; // [h][h] - OK
+        MPI_Aint target_disp = h * lbw + h + W; // [h][h+W] - OK
         MPI_Put(origin_addr, 1, vertical_strip_type, mLeftRank, target_disp, 1, vertical_strip_type, window);
     }
 
@@ -641,16 +632,16 @@ void ParallelHeatSolver::startHaloExchangeRMA(float *localData, MPI_Win window) 
     if (mRightRank != MPI_PROC_NULL) {
         // ========= OPRAVA ZDE ==========
         // Ukazatel na začátek PRAVÉHO okrajového bloku [h][h+W-h]
-        float *origin_addr = localData + h * lbw + (h + W - h);
+        float* origin_addr = localData + h * lbw + (h + W - h);
         // ===============================
-        MPI_Aint target_disp = h * lbw;           // [h][0] - OK
+        MPI_Aint target_disp = h * lbw; // [h][0] - OK
         MPI_Put(origin_addr, 1, vertical_strip_type, mRightRank, target_disp, 1, vertical_strip_type, window);
     }
 
     // --- Komunikace s HORNÍM sousedem (mTopRank) ---
     if (mTopRank != MPI_PROC_NULL) {
-        float *origin_addr = localData + h * lbw + h; // [h][h] - OK
-        MPI_Aint target_disp = (h + H) * lbw + h;    // [h+H][h] - OK
+        float* origin_addr = localData + h * lbw + h; // [h][h] - OK
+        MPI_Aint target_disp = (h + H) * lbw + h; // [h+H][h] - OK
         MPI_Put(origin_addr, 1, horizontal_strip_type, mTopRank, target_disp, 1, horizontal_strip_type, window);
     }
 
@@ -658,19 +649,18 @@ void ParallelHeatSolver::startHaloExchangeRMA(float *localData, MPI_Win window) 
     if (mBottomRank != MPI_PROC_NULL) {
         // ========= OPRAVA ZDE ==========
         // Ukazatel na začátek DOLNÍHO okrajového bloku [h+H-h][h]
-        float *origin_addr = localData + (h + H - h) * lbw + h;
+        float* origin_addr = localData + (h + H - h) * lbw + h;
         // ===============================
         MPI_Aint target_disp = h * lbw +
-                               h; // [0][h] - Opraveno: Cíl je HORNÍ halo, začíná na řádku 0, sloupci h. Posun je h*lbw+h? Ne, jen h. Chyba!
+            h; // [0][h] - Opraveno: Cíl je HORNÍ halo, začíná na řádku 0, sloupci h. Posun je h*lbw+h? Ne, jen h. Chyba!
         // Správný target_disp pro HORNÍ halo [0][h] je:
         target_disp = h; // Posun v počtu floatů od začátku bufferu
         // ===============================
         MPI_Put(origin_addr, 1, horizontal_strip_type, mBottomRank, target_disp, 1, horizontal_strip_type, window);
     }
-
 }
 
-void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8> &requests) {
+void ParallelHeatSolver::awaitHaloExchangeP2P(std::array<MPI_Request, 8>& requests) {
     /**********************************************************************************************************************/
     /*                       Wait for all halo zone exchanges to finalize using P2P communication.                        */
     /**********************************************************************************************************************/
@@ -686,7 +676,128 @@ void ParallelHeatSolver::awaitHaloExchangeRMA(MPI_Win window) {
     MPI_Win_fence(0, window);
 }
 
-void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outResult) {
+void ParallelHeatSolver::printLocalTilesWithoutHalo() {
+    std::stringstream ss; // Vytvoříme stringstream pro sestavení výstupu
+
+    ss << "\nRank: " << mWorldRank << " - Aktivní oblast dlaždice (mLocalTileTemperature[0]); " << mLocalTileSize[0] <<
+        "x" << mLocalTileSize[1] << "\n";
+    const int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
+
+    // Nastavíme formátování pro čísla s plovoucí desetinnou čárkou (volitelné)
+    ss << std::fixed << std::setprecision(1); // Např. 4 desetinná místa
+
+    // Iterujeme POUZE přes aktivní oblast dlaždice
+    for (int y = 0; y < mLocalTileSize[1]; ++y) {
+        // Vnější smyčka přes řádky (y) aktivní oblasti
+        for (int x = 0; x < mLocalTileSize[0]; ++x) {
+            size_t index = static_cast<size_t>(y + haloZoneSize) * localBufferWidth
+                + static_cast<size_t>(x + haloZoneSize);
+
+            // Přidáme hodnotu z aktivní oblasti
+            ss << mLocalTileTemperature[0].at(index);
+
+            ss << " ";
+        }
+        // Na konci každého řádku aktivní oblasti přidáme nový řádek
+        ss << "\n";
+    }
+
+    std::cout << ss.str();
+}
+
+void ParallelHeatSolver::printLocalTilesWithHalo() {
+    std::stringstream ss; // Vytvoříme stringstream pro sestavení výstupu
+
+    // Vypočítáme celkové rozměry bufferu
+    const int totalHeight = mLocalTileSize[1] + 2 * haloZoneSize;
+    const int totalWidth = mLocalTileSize[0] + 2 * haloZoneSize;
+    const int localBufferWidth = totalWidth; // Stride je celková šířka
+
+    // Přidáme hlavičku informující o tisku celého bufferu
+    ss << "\nRank: " << mWorldRank << " - Celý lokální buffer (mLocalTileTemperature[0]); "
+        << totalWidth << "x" << totalHeight << " (včetně halo)\n";
+
+    // Nastavíme formátování (můžete si upravit přesnost)
+    ss << std::fixed << std::setprecision(1);
+
+    // Iterujeme přes CELÝ buffer, včetně halo zón
+    for (int y = 0; y < totalHeight; ++y) {
+        // Vnější smyčka přes všechny řádky bufferu
+        for (int x = 0; x < totalWidth; ++x) {
+            // Vnitřní smyčka přes všechny sloupce bufferu
+            // Index je nyní přímý, protože x a y jsou souřadnice v bufferu
+            size_t index = static_cast<size_t>(y) * localBufferWidth + static_cast<size_t>(x);
+
+            // Přidáme hodnotu z bufferu
+            // Použijeme .at() pro bezpečnost, nebo [] pro rychlost
+
+            ss << mLocalTileTemperature[0].at(index);
+
+
+            // Přidáme oddělovač pro čitelnost
+            ss << " ";
+        }
+        // Na konci každého řádku bufferu přidáme nový řádek
+        ss << "\n";
+    }
+
+    // Vytiskneme celý sestavený string najednou
+    std::cout << ss.str();
+}
+
+void ParallelHeatSolver::printGlobalGridAligned() const {
+    // Tisk provádí pouze root proces
+    if (mWorldRank != ROOT) {
+        return;
+    }
+    auto globalData = mMaterialProps.getInitialTemperature().data();
+
+    // Zkontrolujeme, zda máme platná data
+    if (globalData == nullptr) {
+        std::fprintf(stderr, "[Rank %d] Chyba: printGlobalGridAligned voláno s nullptr!\n", mWorldRank);
+        return;
+    }
+
+    const size_t edgeSize = mMaterialProps.getEdgeSize();
+    if (edgeSize == 0) {
+        std::printf("[Rank %d] Globální mřížka má velikost 0.\n", mWorldRank);
+        return;
+    }
+
+    std::stringstream ss;
+
+    ss << "\n[Rank " << mWorldRank << "] Globální mřížka teplot ("
+        << edgeSize << "x" << edgeSize << ", zarovnáno):\n";
+
+    // --- Nastavení formátování a šířky ---
+    const int precision = 1; // Počet desetinných míst
+    const int fieldWidth = 8; // Pevná šířka pole pro každé číslo
+
+    ss << std::fixed << std::setprecision(precision);
+    // ------------------------------------
+
+    // Iterujeme přes globální mřížku
+    for (size_t y = 0; y < edgeSize; ++y) {
+        // Vnější smyčka přes řádky
+        for (size_t x = 0; x < edgeSize; ++x) {
+            // Vnitřní smyčka přes sloupce
+            // Index v lineárně uloženém globálním poli
+            size_t index = y * edgeSize + x;
+
+            // Nastavíme šířku pole PŘED vložením čísla
+            ss << std::setw(fieldWidth);
+            ss << globalData[index]; // Přidáme hodnotu z globálního pole
+
+            // Mezeru už nepotřebujeme, setw zajistí oddělení
+        }
+        ss << "\n"; // Nový řádek po dokončení řádku mřížky
+    }
+
+    // Vytiskneme celý sestavený a zarovnaný string najednou
+    std::cout << ss.str();
+}
+
+void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outResult) {
     std::array<MPI_Request, 8> requestsP2P{};
     std::array<MPI_Request, 8> paramsRequests{};
 
@@ -694,10 +805,9 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
     /*                                         Scatter initial data.                                                      */
     /**********************************************************************************************************************/
 
-    std::fprintf(stderr, "Starting the simulation...\n");
-    const float *globalTemperatures = nullptr;
-    const float *globalDomainParameters = nullptr;
-    const int *globalDomainMap = nullptr;
+    const float* globalTemperatures = nullptr;
+    const float* globalDomainParameters = nullptr;
+    const int* globalDomainMap = nullptr;
     if (rank(gridComm) == ROOT) {
         globalTemperatures = mMaterialProps.getInitialTemperature().data();
         globalDomainParameters = mMaterialProps.getDomainParameters().data();
@@ -706,11 +816,11 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
 
 
     // Scatterujeme do 'newIdx', protože to bude výsledek "iterace -1"
-    float *localTemperatureBuffer = mLocalTileTemperature[0].data();
+    float* localTemperatureBuffer = mLocalTileTemperature[0].data();
     // Předpoklad: mLocalTileMaterialProp je pro float parametry
-    float *localMaterialPropBuffer = mLocalTileMaterialProp.data();
+    float* localMaterialPropBuffer = mLocalTileMaterialProp.data();
     // Předpoklad: mLocalTileMaterial je pro int mapu
-    int *localMaterialMapBuffer = mLocalTileMaterial.data();
+    int* localMaterialMapBuffer = mLocalTileMaterial.data();
 
     localDomainMap<float>(globalTemperatures, localTemperatureBuffer);
 
@@ -755,8 +865,10 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
         if (mSimulationProps.isRunParallelP2P()) {
             // Start halo exchange
             startHaloExchangeP2P(mLocalTileTemperature[newIdx].data(), requestsP2P);
-        } else if (mSimulationProps.isRunParallelRMA()) {
+        }
+        else if (mSimulationProps.isRunParallelRMA()) {
             // Start halo exchange
+            MPI_Win_fence(0, m_rma_win[newIdx]);
             startHaloExchangeRMA(mLocalTileTemperature[newIdx].data(), m_rma_win[newIdx]);
         }
 
@@ -772,13 +884,13 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
 
         // Výpočet rozměrů a offsetů pro VNITŘNÍ oblast
         const std::size_t inner_offset_x = static_cast<std::size_t>(h_size +
-                                                                    h_size); // Začíná za horním a levým okrajem = 2*h
+            h_size); // Začíná za horním a levým okrajem = 2*h
         const std::size_t inner_offset_y = static_cast<std::size_t>(h_size +
-                                                                    h_size); // Začíná za horním a levým okrajem = 2*h
+            h_size); // Začíná za horním a levým okrajem = 2*h
         const std::size_t inner_size_x = static_cast<std::size_t>(local_active_width -
-                                                                  2 * h_size); // Šířka bez levého a pravého okraje
+            2 * h_size); // Šířka bez levého a pravého okraje
         const std::size_t inner_size_y = static_cast<std::size_t>(local_active_height -
-                                                                  2 * h_size); // Výška bez horního a dolního okraje
+            2 * h_size); // Výška bez horního a dolního okraje
         const std::size_t stride = static_cast<std::size_t>(local_active_width + 2 * h_size); // Celková šířka bufferu
 
         // Voláme updateTile POUZE pro vnitřní oblast, pokud existuje
@@ -787,13 +899,12 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
                        mLocalTileTemperature[newIdx].data(),
                        mLocalTileMaterialProp.data(),
                        mLocalTileMaterial.data(),
-                       inner_offset_x,  // offsetX
-                       inner_offset_y,  // offsetY
-                       inner_size_x,    // sizeX
-                       inner_size_y,    // sizeY
-                       stride);         // stride
+                       inner_offset_x, // offsetX
+                       inner_offset_y, // offsetY
+                       inner_size_x, // sizeX
+                       inner_size_y, // sizeY
+                       stride); // stride
         }
-
 
 
         /**********************************************************************************************************************/
@@ -803,9 +914,12 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
         if (!mSimulationProps.isRunParallelRMA()) {
             // Wait for halo exchange
             awaitHaloExchangeP2P(requestsP2P);
-        } else {
+            // printLocalTilesWithHalo();
+        }
+        else {
             // Wait for halo exchange
             awaitHaloExchangeRMA(m_rma_win[newIdx]);
+            // printLocalTilesWithHalo();
         }
 
 
@@ -816,8 +930,11 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
 
             if (mSimulationProps.useParallelIO()) {
                 storeDataIntoFileParallel(mFileHandle, iter, mLocalTileTemperature[newIdx].data());
-            } else {
-                storeDataIntoFileSequential(mFileHandle, iter, mLocalTileTemperature[newIdx].data());
+            }
+            else {
+                gatherTiles<float>(mLocalTileTemperature[newIdx].data(), outResult.data());
+
+                storeDataIntoFileSequential(mFileHandle, iter, outResult.data());
             }
         }
 
@@ -826,13 +943,14 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
             /*                 Compute and print middle column average temperature and print progress report.                     */
             /**********************************************************************************************************************/
             float middleColAvgTemp = computeMiddleColumnAverageTemperatureParallel(
-                    mLocalTileTemperature[newIdx].data());
+                mLocalTileTemperature[newIdx].data());
 
+            int rank;
+            MPI_Comm_rank(avgTempComm, &rank);
 
-            printProgressReport(iter, middleColAvgTemp);
-
+            if (rank == 0)
+                printProgressReport(iter, middleColAvgTemp);
         }
-
     }
 
     const std::size_t resIdx = mSimulationProps.getNumIterations() % 2; // Index of the buffer with final temperatures
@@ -853,7 +971,6 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>> &outRes
         auto avg = computeMiddleColumnAverageTemperatureSequential(outResult.data());
         printFinalReport(elapsedTime, avg);
     }
-
 }
 
 bool ParallelHeatSolver::shouldComputeMiddleColumnAverageTemperature() const {
@@ -864,80 +981,48 @@ bool ParallelHeatSolver::shouldComputeMiddleColumnAverageTemperature() const {
     return (avgTempComm != MPI_COMM_NULL);
 }
 
-float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const float *localData) const {
+float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const float* localData) const {
     /**********************************************************************************************************************/
     /*                  Implement parallel middle column average temperature computation.                                 */
     /*                      Use OpenMP directives to accelerate the local computations.                                   */
     /**********************************************************************************************************************/
 
 
+    float local_sum = 0.0;
 
-    // 2. Lokální výpočet sumy a počtu bodů na tomto procesu
-    double local_sum = 0.0; // Použijeme double pro větší přesnost při sčítání
-    // Počet bodů v aktivní oblasti této lokální dlaždice
-    const size_t local_count = static_cast<size_t>(mLocalTileSize[0]) * static_cast<size_t>(mLocalTileSize[1]);
+    int nRanksInComm;
+    MPI_Comm_size(avgTempComm, &nRanksInComm);
 
-
-    // Šířka lokálního bufferu včetně halo zón pro výpočet indexů
     const int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
 
     // Použití OpenMP pro paralelizaci lokálního sčítání
 #pragma omp parallel for reduction(+:local_sum) schedule(static)
-    for (int y = 0; y < mLocalTileSize[1]; ++y) {
-        for (int x = 0; x < mLocalTileSize[0]; ++x) {
-            // Spočítáme lineární index v rámci celého lokálního bufferu
-            // přičtením offsetů pro halo zóny
-            size_t index =
-                    static_cast<size_t>(y + haloZoneSize) * localBufferWidth + static_cast<size_t>(x + haloZoneSize);
-            local_sum += localData[index];
-        }
+    for (int y = haloZoneSize; y < mLocalTileSize[1] + haloZoneSize; ++y) {
+        local_sum += localData[y * localBufferWidth + haloZoneSize + mLocalTileSize[0] / 2];
     }
 
-    // 3. Globální redukce (součet) pomocí MPI v rámci komunikátoru avgTempComm
-    double global_sum = 0.0;
 
-    // Použijeme MPI_Allreduce, aby všechny procesy ve středním sloupci měly globální součet
-    // (Pokud by výsledek potřeboval jen jeden proces, stačilo by MPI_Reduce)
-    int ierr = MPI_Allreduce(
-            &local_sum,        // Adresa lokální hodnoty k odeslání
-            &global_sum,       // Adresa, kam se uloží výsledek (globální suma)
-            1,                 // Počet prvků (posíláme jednu sumu)
-            MPI_DOUBLE,        // Datový typ sčítaných hodnot (používáme double)
-            MPI_SUM,           // Operace, kterou chceme provést (sčítání)
-            avgTempComm        // Komunikátor obsahující JEN procesy ve středním sloupci!
+    if (nRanksInComm == 1) {
+        return local_sum / static_cast<float>(mLocalTileSize[1]);
+    }
+
+    float global_sum = 0.0;
+
+    MPI_Reduce(
+        &local_sum, // Adresa lokální hodnoty k odeslání
+        &global_sum, // Adresa, kam se uloží výsledek (globální suma)
+        1, // Počet prvků (posíláme jednu sumu)
+        MPI_FLOAT, // Datový typ sčítaných hodnot (používáme double)
+        MPI_SUM, // Operace, kterou chceme provést (sčítání),
+        0,
+        avgTempComm // Komunikátor obsahující JEN procesy ve středním sloupci!
     );
 
-    // Základní kontrola chyby MPI operace
-    if (ierr != MPI_SUCCESS) {
-        fprintf(stderr, "Rank %d: Error in MPI_Allreduce for average temperature sum!\n", mWorldRank);
-        // Můžeme zde program ukončit, nebo zkusit pokračovat s možná neplatnou hodnotou
-        MPI_Abort(MPI_COMM_WORLD, ierr); // Ukončí všechny procesy
-        return -1.0f; // Jen pro případ, že by abort neukončil hned
-    }
 
-
-    // 4. Získání celkového počtu bodů ve středním sloupci napříč procesy
-    //    Protože používáme statickou dekompozici, všechny lokální dlaždice
-    //    ve středním sloupci by měly mít stejnou velikost (local_count).
-    //    Celkový počet bodů je tedy local_count * počet_procesů_ve_sloupci.
-    int avgCommSize;
-    MPI_Comm_size(avgTempComm, &avgCommSize); // Získáme počet procesů v avgTempComm
-
-    // Použijeme 64-bitové celé číslo pro případ velkých mřížek
-    unsigned long long global_count = static_cast<unsigned long long>(local_count) * avgCommSize;
-
-
-    // 5. Výpočet finálního průměru
-    float averageTemperature = 0.0f;
-    if (global_count > 0) {
-        averageTemperature = static_cast<float>(global_sum / global_count);
-    } // Jinak zůstane 0.0f, pokud by sloupec neměl žádné body
-
-    // 6. Vrácení výsledku (všechny procesy v avgTempComm vrátí stejnou hodnotu)
-    return averageTemperature;
+    return global_sum / static_cast<float>(mLocalTileSize[1] * nRanksInComm);
 }
 
-float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const float *globalData) const {
+float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const float* globalData) const {
     /**********************************************************************************************************************/
     /*                  Implement sequential middle column average temperature computation.                               */
     /*                      Use OpenMP directives to accelerate the local computations.                                   */
@@ -964,7 +1049,8 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
 
     // POZOR: OpenMP zde dává smysl, pokud je edgeSize velké a funkce je volána jen na rootu.
 #pragma omp parallel for reduction(+:middleColSum) schedule(static)
-    for (std::size_t y = 0; y < edgeSize; ++y) { // Iterujeme přes řádky
+    for (std::size_t y = 0; y < edgeSize; ++y) {
+        // Iterujeme přes řádky
         // Spočítáme index bodu v prostředním sloupci pro daný řádek y
         std::size_t index = y * edgeSize + middleColIndex;
         middleColSum += globalData[index];
@@ -985,7 +1071,7 @@ void ParallelHeatSolver::openOutputFileSequential() {
 
 void ParallelHeatSolver::storeDataIntoFileSequential(hid_t fileHandle,
                                                      std::size_t iteration,
-                                                     const float *globalData) {
+                                                     const float* globalData) {
     storeDataIntoFile(fileHandle, iteration, globalData);
 }
 
@@ -1003,8 +1089,7 @@ void ParallelHeatSolver::openOutputFileParallel() {
                             H5F_ACC_TRUNC,
                             H5P_DEFAULT,
                             faplHandle);
-    if (!mFileHandle.valid())
-    {
+    if (!mFileHandle.valid()) {
         throw std::ios::failure("Cannot create output file!");
     }
 #else
@@ -1014,7 +1099,7 @@ void ParallelHeatSolver::openOutputFileParallel() {
 
 void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
                                                    [[maybe_unused]] std::size_t iteration,
-                                                   [[maybe_unused]] const float *localData) {
+                                                   [[maybe_unused]] const float* localData) {
     if (fileHandle == H5I_INVALID_HID) {
         return;
     }
