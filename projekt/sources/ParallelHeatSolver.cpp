@@ -996,7 +996,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
 
     const int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
     // The middle column within the local tile's active area
-    const int middleColIndexLocal = mLocalTileSize[0] / 2;
+    const int middleColIndexLocal = 0; // always odd grid size, so middle column is 0
 
     // Use OpenMP to parallelize local summation over the local tile's middle column
 #pragma omp parallel for reduction(+:local_sum) schedule(static)
@@ -1038,11 +1038,6 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
     /*                      Use OpenMP directives to accelerate the local computations.                                   */
     /**********************************************************************************************************************/
 
-    // This function should only be called on the root process which has the global data.
-    if (globalData == nullptr) {
-        // Error case: globalData is not available
-        return -1.0f; // Indicate an error or invalid result
-    }
 
     double middleColSum = 0.0; // Use double for summation to maintain precision
     const std::size_t edgeSize = mMaterialProps.getEdgeSize();
