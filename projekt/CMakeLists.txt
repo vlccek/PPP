@@ -14,6 +14,11 @@ cmake_minimum_required(VERSION 3.22)
 
 project(ppp_proj01 LANGUAGES C CXX)
 
+
+
+
+
+
 # Set default build type to Release
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
@@ -133,7 +138,7 @@ if(NOT DEFINED LOGIN)
   message(WARNING "LOGIN variable is not defined, you will not be able to create final archive (set by '-DLOGIN=...').")
 else()
   file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${LOGIN})
-  add_custom_target(pack 
+  add_custom_target(pack
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/sources/ParallelHeatSolver.hpp ${CMAKE_CURRENT_BINARY_DIR}/${LOGIN}
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/sources/ParallelHeatSolver.cpp ${CMAKE_CURRENT_BINARY_DIR}/${LOGIN}
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/${LOGIN}.pdf ${CMAKE_CURRENT_BINARY_DIR}/${LOGIN}
@@ -175,3 +180,39 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/sources/assignment)
                                          "${CMAKE_CURRENT_BINARY_DIR}/assignment"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endif()
+
+
+######
+
+option(USE_KAMPING "Build with KaMPing library support" OFF)
+
+
+if(USE_KAMPING)
+  message(STATUS "KaMPing support enabled. Fetching KaMPing library...")
+
+  include(FetchContent)
+  FetchContent_Declare(
+          kamping
+          GIT_REPOSITORY https://github.com/kamping-site/kamping.git
+          GIT_TAG v0.1.1
+  )
+
+  FetchContent_MakeAvailable(kamping)
+
+  if(TARGET kamping::kamping)
+    message(STATUS "KaMPing target KaMPing::kamping found.")
+  else()
+    message(FATAL_ERROR "KaMPing target KaMPing::kamping not found after FetchContent_MakeAvailable. Check KaMPing's CMakeLists.txt.")
+    # Alternativní běžný název může být jen 'kamping'
+    # if(TARGET kamping) ...
+  endif()
+
+  # Přidáme definici preprocesoru, aby C++ kód věděl, že má použít KaMPing
+  add_compile_definitions(USE_KAMPING_LIB)
+  target_link_libraries(${PROJECT_NAME} PRIVATE kamping::kamping)
+
+else()
+  message(STATUS "KaMPing support disabled.")
+endif()
+
+######

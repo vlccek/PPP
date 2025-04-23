@@ -30,7 +30,7 @@ mkdir -p $OUT_FILE_PATH
 
 # Doplnte vhodne nastavenie Lustre file system #
 ################################################
-
+lfs setstripe -S 1M -c -1 $OUT_FILE_PATH
 ################################################
 
 DISK_WRITE_INTENSITY=50

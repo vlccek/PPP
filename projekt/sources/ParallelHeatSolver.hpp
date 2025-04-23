@@ -24,6 +24,11 @@
 #include "Hdf5Handle.hpp"
 #include "HeatSolverBase.hpp"
 
+#ifdef USE_KAMPING_LIB
+    #include <kamping/communicator.hpp>
+#endif
+
+
 /**
  * @brief The ParallelHeatSolver class implements parallel MPI based heat
  *        equation solver in 2D using 2D block grid decomposition.
@@ -263,10 +268,6 @@ private:
     int myCoorsGrid[2];
     int mTopRank, mBottomRank, mRightRank, mLeftRank;
 
-    MPI_Request mRequest[8] = {
-        MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,
-        MPI_REQUEST_NULL, MPI_REQUEST_NULL, MPI_REQUEST_NULL,
-    };
     std::array<MPI_Win, 2> m_rma_win = {MPI_WIN_NULL, MPI_WIN_NULL};
 
 
@@ -275,6 +276,12 @@ private:
         MPI_Comm_rank(c, &rank);
         return rank;
     }
+
+
+#ifdef USE_KAMPING_LIB
+    kamping::Communicator m_kamping_avg_comm
+#endif
+
 
     static constexpr int ROOT = 0;
 };

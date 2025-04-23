@@ -44,7 +44,7 @@ ParallelHeatSolver::ParallelHeatSolver(const SimulationProperties& simulationPro
         /**********************************************************************************************************************/
 
         if (mSimulationProps.useParallelIO()) {
-            mFileHandle;
+            openOutputFileParallel();
         }
         else {
             if (mWorldRank == 0) {
@@ -100,14 +100,22 @@ void ParallelHeatSolver::initGridTopology() {
 
     // Rozdělení komunikátoru gridComm
     MPI_Comm_split(gridComm, color, key, &avgTempComm);
+
+
+#ifdef USE_KAMPING_LIB
+     if (avgTempComm != MPI_COMM_NULL) {
+        m_kamping_avg_comm = kamping::Communicator(avgTempComm);
+     }
+#endif
 }
 
 void ParallelHeatSolver::deinitGridTopology() {
     /**********************************************************************************************************************/
     /*      Deinitialize 2D grid topology and the middle column average temperature computation communicator              */
     /**********************************************************************************************************************/
-
+#ifndef USE_KAMPING_LIB
     MPI_Comm_free(&gridComm);
+#endif
     if (avgTempComm != MPI_COMM_NULL) {
         MPI_Comm_free(&avgTempComm);
     }
@@ -314,7 +322,6 @@ void ParallelHeatSolver::localDomainMap(const T* globalData, T* localData) {
     /*  const MPI_Datatype globalTileType = std::is_same_v<T, int> ? globalFloatTileType : globalIntTileType;             */
     /*  const MPI_Datatype localTileType  = std::is_same_v<T, int> ? localIntTileType    : localfloatTileType;            */
     /**********************************************************************************************************************/
-    const MPI_Datatype baseMpiType = std::is_same_v<T, int> ? MPI_INT : MPI_FLOAT;
     const MPI_Datatype resizedTileType = std::is_same_v<T, int> ? tileTypeInt : tileTypeFloat;
     const MPI_Datatype localRecvType = std::is_same_v<T, int>
                                            ? m_localActiveAreaTypeInt
@@ -323,8 +330,6 @@ void ParallelHeatSolver::localDomainMap(const T* globalData, T* localData) {
 
     std::vector<int> sendcounts;
     std::vector<int> displs;
-
-    const int recvcount = mLocalTileSize[0] * mLocalTileSize[1];
 
     int localBufferWidth = mLocalTileSize[0] + 2 * haloZoneSize;
     int offset = haloZoneSize * localBufferWidth + haloZoneSize;
@@ -381,7 +386,6 @@ void ParallelHeatSolver::gatherTiles(const T* localData, T* globalData) {
     /*  const MPI_Datatype localTileType  = std::is_same_v<T, int> ? localIntTileType    : localfloatTileType;            */
     /*  const MPI_Datatype globalTileType = std::is_same_v<T, int> ? globalFloatTileType : globalIntTileType;             */
     /**********************************************************************************************************************/
-    const MPI_Datatype baseMpiType = std::is_same_v<T, int> ? MPI_INT : MPI_FLOAT;
     const MPI_Datatype recvTypeOnRoot = std::is_same_v<T, int> ? tileTypeInt : tileTypeFloat;
     const MPI_Datatype sendTypeFromLocal = std::is_same_v<T, int>
                                                ? m_localActiveAreaTypeInt
@@ -455,11 +459,6 @@ void ParallelHeatSolver::computeHaloZones(const float* oldTemp, float* newTemp) 
     int RIGHT = 2;
     int LEFT = 3;
 
-    // POZNÁMKA: Původní referenční kód měl zde OMP pragmy, ale ty jsou zbytečné,
-    //           protože samotná metoda updateTile už paralelizuje vnitřní smyčky.
-    //           Víceúrovňový paralelismus by zde mohl být neefektivní.
-
-    // --- Výpočet hran (bez rohů) ---
 
     // Horní hrana (pro odeslání nahoru)
     if (neighbours[TOP] != MPI_PROC_NULL) {
@@ -997,7 +996,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
 
     // Použití OpenMP pro paralelizaci lokálního sčítání
 #pragma omp parallel for reduction(+:local_sum) schedule(static)
-    for (int y = haloZoneSize; y < mLocalTileSize[1] + haloZoneSize; ++y) {
+    for (std::size_t y = haloZoneSize; y < mLocalTileSize[1] + haloZoneSize; ++y) {
         local_sum += localData[y * localBufferWidth + haloZoneSize + mLocalTileSize[0] / 2];
     }
 
@@ -1085,10 +1084,18 @@ void ParallelHeatSolver::openOutputFileParallel() {
     /**********************************************************************************************************************/
 
 
+    faplHandle = H5Pcreate(H5P_FILE_ACCESS);
+    H5Pset_fapl_mpio(faplHandle, gridComm, MPI_INFO_NULL);
+
+    // alignment for file access
+    hsize_t alignment = 1024 * 1024;
+    H5Pset_alignment(faplHandle, 0, alignment);
+
     mFileHandle = H5Fcreate(mSimulationProps.getOutputFileName(codeType).c_str(),
                             H5F_ACC_TRUNC,
                             H5P_DEFAULT,
                             faplHandle);
+
     if (!mFileHandle.valid()) {
         throw std::ios::failure("Cannot create output file!");
     }
@@ -1120,18 +1127,40 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
         /*                                Compute the tile offsets and sizes.                                                 */
         /*               Note that the X and Y coordinates are swapped (but data not altered).                                */
         /**********************************************************************************************************************/
+        std::array<hsize_t, 2> tileSize{
+            static_cast<hsize_t>(mLocalTileSize[0]), static_cast<hsize_t>(mLocalTileSize[1])
+        };
+        std::array<hsize_t, 2> localDataTileOffset{haloZoneSize, haloZoneSize};
 
+        hsize_t offsetX{0};
+        hsize_t offsetY{0};
+
+        if (myCoorsGrid[0] == 1) {
+            // 1d
+            offsetX = myCoorsGrid[1] * mLocalTileSize[0];
+        }
+        else if (myCoorsGrid[1] == 1) {
+            // 1d
+            offsetY = myCoorsGrid[1] * mLocalTileSize[0];
+        }
+        else {
+            offsetX = myCoorsGrid[1] * mLocalTileSize[0];
+            offsetY = myCoorsGrid[0] * mLocalTileSize[1];
+        }
+
+        std::array<hsize_t, 2> tileOffsetInGlobal{offsetY, offsetX};
 
         // Create new dataspace and dataset using it.
         static constexpr std::string_view dataSetName{"Temperature"};
 
-        Hdf5PropertyListHandle datasetPropListHandle{};
 
+        Hdf5PropertyListHandle datasetPropListHandle{};
         /**********************************************************************************************************************/
         /*                            Create dataset property list to set up chunking.                                        */
         /*                Set up chunking for collective write operation in datasetPropListHandle variable.                   */
         /**********************************************************************************************************************/
-
+        datasetPropListHandle = H5Pcreate(H5P_DATASET_CREATE);
+        H5Pset_chunk(datasetPropListHandle, 2, tileSize.data());
 
         Hdf5DataspaceHandle dataSpaceHandle(H5Screate_simple(2, gridSize.data(), nullptr));
         Hdf5DatasetHandle dataSetHandle(H5Dcreate(groupHandle, dataSetName.data(),
@@ -1140,17 +1169,22 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
                                                   H5P_DEFAULT));
 
         Hdf5DataspaceHandle memSpaceHandle{};
-
         /**********************************************************************************************************************/
         /*                Create memory dataspace representing tile in the memory (set up memSpaceHandle).                    */
         /**********************************************************************************************************************/
-
+        std::array<hsize_t, 2> tileSizeWithHaloZones{
+            mLocalTileSize[1] + 2 * haloZoneSize, mLocalTileSize[0] + 2 * haloZoneSize
+        };
+        memSpaceHandle = H5Screate_simple(2, tileSizeWithHaloZones.data(), nullptr);
 
         /**********************************************************************************************************************/
         /*              Select inner part of the tile in memory and matching part of the dataset in the file                  */
         /*                           (given by position of the tile in global domain).                                        */
         /**********************************************************************************************************************/
-
+        H5Sselect_hyperslab(memSpaceHandle, H5S_SELECT_SET, localDataTileOffset.data(), nullptr, tileSize.data(),
+                            nullptr);
+        H5Sselect_hyperslab(dataSpaceHandle, H5S_SELECT_SET, tileOffsetInGlobal.data(), nullptr, tileSize.data(),
+                            nullptr);
 
         Hdf5PropertyListHandle propListHandle{};
 
@@ -1158,8 +1192,11 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
         /*              Perform collective write operation, writting tiles from all processes at once.                        */
         /*                                   Set up the propListHandle variable.                                              */
         /**********************************************************************************************************************/
+        // create XFER property list and set collective IO
+        propListHandle = H5Pcreate(H5P_DATASET_XFER);
+        H5Pset_dxpl_mpio(propListHandle, H5FD_MPIO_COLLECTIVE);
 
-
+        // write
         H5Dwrite(dataSetHandle, H5T_NATIVE_FLOAT, memSpaceHandle, dataSpaceHandle, propListHandle, localData);
     }
 
