@@ -26,6 +26,12 @@
 
 #ifdef USE_KAMPING_LIB
     #include <kamping/communicator.hpp>
+    #include <kamping/collectives/reduce.hpp>
+    #include <kamping/communicator.hpp>
+    #include <kamping/data_buffer.hpp>
+    #include <kamping/environment.hpp>
+    #include <kamping/mpi_ops.hpp>
+    #include <kamping/named_parameters.hpp>
 #endif
 
 
@@ -259,7 +265,8 @@ private:
     Hdf5FileHandle mFileHandle{};
 
     MPI_Comm gridComm = MPI_COMM_NULL; ///< MPI communicator for the 2D Cartesian grid topology.
-    MPI_Comm avgTempComm = MPI_COMM_NULL; ///< MPI communicator specifically for ranks in the middle column of the grid, used for average temperature computation.
+    MPI_Comm avgTempComm = MPI_COMM_NULL;
+    ///< MPI communicator specifically for ranks in the middle column of the grid, used for average temperature computation.
 
     /// @brief Edge size of the global computational grid.
     int mGridSizeEdge{};
@@ -309,7 +316,7 @@ private:
     }
 
 #ifdef USE_KAMPING_LIB
-    kamping::Communicator m_kamping_avg_comm; ///< Kamping communicator wrapper for avgTempComm.
+    kamping::Communicator<> m_kamping_avg_comm; ///< Kamping communicator wrapper for avgTempComm.
 #endif
 
     /// @brief Rank of the root process (conventionally 0).

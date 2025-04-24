@@ -310,8 +310,8 @@ void ParallelHeatSolver::localDomainMap(const T* globalData, T* localData) {
     /**********************************************************************************************************************/
     const MPI_Datatype globalSendTileType = std::is_same_v<T, int> ? tileTypeInt : tileTypeFloat;
     const MPI_Datatype localRecvAreaType = std::is_same_v<T, int>
-                                           ? m_localActiveAreaTypeInt
-                                           : m_localActiveAreaTypeFloat;
+                                               ? m_localActiveAreaTypeInt
+                                               : m_localActiveAreaTypeFloat;
 
     std::vector<int> sendcounts; // Only used on root
     std::vector<int> displs; // Only used on root
@@ -550,8 +550,10 @@ void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_R
     // Send: Bottom boundary of the active region [h+H-h..h+H-1][h..h+W-1]
     // Recv: Into the bottom halo region [h+H..h+H+h-1][h..h+W-1]
     float* sendPtrBottom =
-        localData + (haloSize + local_active_height - haloSize) * localBufferWidth + haloSize; // Pointer to [h+H-h][h] (start of bottom active edge)
-    float* recvPtrBottom = localData + (haloSize + local_active_height) * localBufferWidth + haloSize; // Pointer to [h+H][h] (start of bottom halo, skipping left halo)
+        localData + (haloSize + local_active_height - haloSize) * localBufferWidth + haloSize;
+    // Pointer to [h+H-h][h] (start of bottom active edge)
+    float* recvPtrBottom = localData + (haloSize + local_active_height) * localBufferWidth + haloSize;
+    // Pointer to [h+H][h] (start of bottom halo, skipping left halo)
 
     MPI_Irecv(recvPtrBottom, 1, horizontal_strip_type, mBottomRank, recv_tag, gridComm, &requests[2]);
     MPI_Isend(sendPtrBottom, 1, horizontal_strip_type, mBottomRank, send_tag, gridComm, &requests[3]);
@@ -560,7 +562,8 @@ void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_R
     // Send: Left boundary of the active region [h..h+H-1][h..h+h-1]
     // Recv: Into the left halo region [h..h+H-1][0..h-1]
     float* sendPtrLeft = localData + haloSize * localBufferWidth + haloSize; // Pointer to [h][h]
-    float* recvPtrLeft = localData + haloSize * localBufferWidth; // Pointer to [h][0] (start of left halo, skipping top halo row)
+    float* recvPtrLeft = localData + haloSize * localBufferWidth;
+    // Pointer to [h][0] (start of left halo, skipping top halo row)
 
     MPI_Irecv(recvPtrLeft, 1, vertical_strip_type, mLeftRank, recv_tag, gridComm, &requests[4]);
     MPI_Isend(sendPtrLeft, 1, vertical_strip_type, mLeftRank, send_tag, gridComm, &requests[5]);
@@ -569,8 +572,10 @@ void ParallelHeatSolver::startHaloExchangeP2P(float* localData, std::array<MPI_R
     // Send: Right boundary of the active region [h..h+H-1][h+W-h..h+W-1]
     // Recv: Into the right halo region [h..h+H-1][h+W..h+W+h-1]
     float* sendPtrRight =
-        localData + haloSize * localBufferWidth + (haloSize + local_active_width - haloSize); // Pointer to [h][h+W-h] (start of right active edge)
-    float* recvPtrRight = localData + haloSize * localBufferWidth + (haloSize + local_active_width); // Pointer to [h][h+W] (start of right halo, skipping top halo row)
+        localData + haloSize * localBufferWidth + (haloSize + local_active_width - haloSize);
+    // Pointer to [h][h+W-h] (start of right active edge)
+    float* recvPtrRight = localData + haloSize * localBufferWidth + (haloSize + local_active_width);
+    // Pointer to [h][h+W] (start of right halo, skipping top halo row)
 
     MPI_Irecv(recvPtrRight, 1, vertical_strip_type, mRightRank, recv_tag, gridComm, &requests[6]);
     MPI_Isend(sendPtrRight, 1, vertical_strip_type, mRightRank, send_tag, gridComm, &requests[7]);
@@ -605,7 +610,8 @@ void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) 
     // --- Communication with RIGHT neighbor (mRightRank) ---
     // Put my Right active boundary [h..h+H-1][h+W-h..h+W-1] to neighbor's Left halo [h..h+H-1][0..h-1]
     if (mRightRank != MPI_PROC_NULL) {
-        float* origin_addr = localData + h * lbw + (h + W - h); // Pointer to [h][h+W-h] (start of Right active boundary)
+        float* origin_addr = localData + h * lbw + (h + W - h);
+        // Pointer to [h][h+W-h] (start of Right active boundary)
         MPI_Aint target_disp = h * lbw; // Displacement to [h][0] (start of Left halo on neighbor)
         MPI_Put(origin_addr, 1, vertical_strip_type, mRightRank, target_disp, 1, vertical_strip_type, window);
     }
@@ -621,8 +627,10 @@ void ParallelHeatSolver::startHaloExchangeRMA(float* localData, MPI_Win window) 
     // --- Communication with BOTTOM neighbor (mBottomRank) ---
     // Put my Bottom active boundary [h+H-h..h+H-1][h..h+W-1] to neighbor's Top halo [0..h-1][h..h+W-1]
     if (mBottomRank != MPI_PROC_NULL) {
-        float* origin_addr = localData + (h + H - h) * lbw + h; // Pointer to [h+H-h][h] (start of Bottom active boundary)
-        MPI_Aint target_disp = h; // Displacement to [0][h] (start of Top halo on neighbor, accounting for left halo size)
+        float* origin_addr = localData + (h + H - h) * lbw + h;
+        // Pointer to [h+H-h][h] (start of Bottom active boundary)
+        MPI_Aint target_disp = h;
+        // Displacement to [0][h] (start of Top halo on neighbor, accounting for left halo size)
         MPI_Put(origin_addr, 1, horizontal_strip_type, mBottomRank, target_disp, 1, horizontal_strip_type, window);
     }
 }
@@ -766,15 +774,8 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outRes
     /* Exchange halo zones of initial domain temperature and parameters using P2P communication. Wait for them to finish. */
     /**********************************************************************************************************************/
 
-    // For initial data, active area boundaries are sent, and halo areas are received.
-    // The initial values outside the active area are effectively 0 or boundary conditions, handled by updateTile.
-    // Need to compute the halo zones of the *initial* temperature based on neighbor's initial active area values.
-    // Since updateTile uses neighbor values, we must first exchange the initial active boundary values.
-
-    // Compute initial halo zones for temperature based on initial active values
-    // Note: This step might be skipped if initial halos are always 0 or boundary defined,
-    // but following the provided structure, it implies using updateTile.
-    computeHaloZones(mLocalTileTemperature[0].data(), mLocalTileTemperature[0].data()); // Compute into the same buffer initially? Or perhaps into buffer 1 using 0?
+    computeHaloZones(mLocalTileTemperature[0].data(), mLocalTileTemperature[0].data());
+    // Compute into the same buffer initially? Or perhaps into buffer 1 using 0?
     // Let's assume computeHaloZones computes the *new* buffer from the *old* buffer.
     // For iter=0, oldIdx=0, newIdx=1. Initial scatter is into 0.
     // Need to copy 0 -> 1 first, then compute halos into 1 from 0.
@@ -792,21 +793,6 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outRes
     awaitHaloExchangeP2P(requestsP2P);
     awaitHaloExchangeP2P(paramsRequests);
 
-    // After this, mLocalTileTemperature[1] has correct halos from neighbors' initial temperatures
-    // and mLocalTileMaterialProp has correct halos from neighbors' initial properties.
-    // mLocalTileTemperature[0] still holds the initial scatter result.
-
-    // For the first iteration (iter=0), oldIdx=0, newIdx=1.
-    // The loop logic starts with oldIdx=0, newIdx=1, computeHaloZones uses oldIdx, then starts exchange on newIdx.
-    // So the initial scatter should go into mLocalTileTemperature[0].
-    // Then, for the first iteration, we compute new temps into mLocalTileTemperature[1].
-    // The *initial* halo exchange should be on mLocalTileTemperature[0] before the loop starts,
-    // so that oldIdx=0 has correct halos for the first computation.
-
-    // Revised Initial Data Setup:
-    // 1. Scatter into mLocalTileTemperature[0] (and props/map).
-    // 2. Exchange halos for mLocalTileTemperature[0] (and props/map).
-    // 3. Loop starts with iter=0, oldIdx=0, newIdx=1. computeHaloZones and rest are computed into newIdx.
 
     // Scatter initial data into mLocalTileTemperature[0]
     localDomainMap<float>(globalTemperatures, mLocalTileTemperature[0].data());
@@ -815,7 +801,8 @@ void ParallelHeatSolver::run(std::vector<float, AlignedAllocator<float>>& outRes
     // Exchange initial halos for mLocalTileTemperature[0]
     startHaloExchangeP2P(mLocalTileTemperature[0].data(), requestsP2P);
     // Properties/Map halos only need to be exchanged once as they don't change
-    startHaloExchangeP2P(mLocalTileMaterialProp.data(), paramsRequests); // This was already done above, is it needed again? No. It's part of init.
+    startHaloExchangeP2P(mLocalTileMaterialProp.data(), paramsRequests);
+    // This was already done above, is it needed again? No. It's part of init.
 
     // Need to wait for the initial temperature halo exchange before the first iteration
     awaitHaloExchangeP2P(requestsP2P);
@@ -987,7 +974,8 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
     int nRanksInComm = 0; // Default value if avgTempComm is NULL
     if (avgTempComm != MPI_COMM_NULL) {
         MPI_Comm_size(avgTempComm, &nRanksInComm);
-    } else {
+    }
+    else {
         // If this rank is not in the middle column, its local sum is 0 and it shouldn't participate in reduction.
         // The calling code checks shouldComputeMiddleColumnAverageTemperature() before calling this.
         // However, to be safe, return 0 if not in the comm.
@@ -1012,7 +1000,16 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
     }
 
     float global_sum = 0.0;
+#ifdef USE_KAMPING_LIB
+    // --- KaMPing ---
 
+    m_kamping_avg_comm.reduce(
+        kamping::send_buf(local_sum),
+        kamping::recv_buf(global_sum),
+        kamping::op([](auto a, auto b) { return a + b; },
+        kamping::ops::non_commutative)
+        );
+#else
     // Perform a reduction (sum) across all ranks in the middle column communicator
     MPI_Reduce(
         &local_sum, // Send buffer: Local sum
@@ -1023,6 +1020,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
         0, // Root rank within the avgTempComm (rank 0 in this specific communicator)
         avgTempComm // Communicator for middle column ranks
     );
+#endif /* USE_KAMPING_LIB */
 
     // Calculate the global average temperature (only root of avgTempComm will have the correct global_sum)
     // The total number of points in the middle column is (global grid height) * 1.
@@ -1155,7 +1153,15 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
         hsize_t offsetY_swapped = static_cast<hsize_t>(myCoorsGrid[0]) * mLocalTileSize[1];
 
         // Offset of the tile within the global dataset (file)
-        std::array<hsize_t, 2> tileOffsetInGlobal{offsetY_swapped, offsetX_swapped}; // {offsetY, offsetX} - based on comment's swap
+
+        hsize_t offsetInGlobalY_standard = static_cast<hsize_t>(myCoorsGrid[1]) * mLocalTileSize[1];
+        // Y-coord * tile_height
+        hsize_t offsetInGlobalX_standard = static_cast<hsize_t>(myCoorsGrid[0]) * mLocalTileSize[0];
+        // X-coord * tile_width
+
+        // Use the standard offset
+        std::array<hsize_t, 2> tileOffsetInGlobal{offsetInGlobalY_standard, offsetInGlobalX_standard};
+        // std::array<hsize_t, 2> tileOffsetInGlobal{offsetY_swapped, offsetX_swapped}; // {offsetY, offsetX} - based on comment's swap
 
 
         // Create new dataspace for the dataset in the file (represents the whole global grid).
@@ -1177,7 +1183,8 @@ void ParallelHeatSolver::storeDataIntoFileParallel(hid_t fileHandle,
                                                   H5T_NATIVE_FLOAT, // Data type
                                                   dataSpaceHandle, // Dataspace describing the dataset
                                                   H5P_DEFAULT, // Link creation property list
-                                                  datasetPropListHandle, // Dataset creation property list (for chunking)
+                                                  datasetPropListHandle,
+                                                  // Dataset creation property list (for chunking)
                                                   H5P_DEFAULT)); // Dataset access property list
 
         Hdf5DataspaceHandle memSpaceHandle{};
