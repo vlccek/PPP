@@ -1,13 +1,13 @@
 /**
  * @file    ParallelHeatSolver.hpp
  *
- * @author  Name Surname <xlogin00@fit.vutbr.cz>
+ * @author  Jakub Vlk <xvlkja07@fit.vutbr.cz>
  *
  * @brief   Course: PPP 2023/2024 - Project 1
  *          This file contains implementation of parallel heat equation solver
  *          using MPI/OpenMP hybrid approach.
  *
- * @date    2024-02-23
+ * @date    2025-04-27
  */
 
 #ifndef PARALLEL_HEAT_SOLVER_HPP

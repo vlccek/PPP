@@ -7,7 +7,9 @@
  *          This file contains implementation of parallel heat equation solver
  *          using MPI/OpenMP hybrid approach.
  *
- * @date    2024-02-23
+ *          || contains "h****kod"||
+ *
+ * @date    2025-04-27
  */
 
 #include <algorithm>
@@ -986,17 +988,18 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureParallel(const fl
     // The middle column within the local tile's active area
     const int middleColIndexLocal = 0; // always odd grid size, so middle column is 0
 
-    // Use OpenMP to parallelize local summation over the local tile's middle column
-#pragma omp parallel for reduction(+:local_sum) schedule(static)
-    for (std::size_t y = haloZoneSize; y < mLocalTileSize[1] + haloZoneSize; ++y) {
-        // Index: row_in_buffer * buffer_width + column_in_buffer
-        local_sum += localData[y * localBufferWidth + haloZoneSize + middleColIndexLocal];
-    }
+    const int H_local = mLocalTileSize[1]; // Lokální výška aktivní oblasti
+    const int start_y_buffer = haloZoneSize;
+    const int end_y_buffer = H_local + haloZoneSize;
+    const int col_index_buffer = haloZoneSize + middleColIndexLocal; // Konstantní index sloupce
 
-    // If there's only one rank in the middle column communicator (e.g., total Y decomposition is 1)
-    if (nRanksInComm == 1) {
-        // Total sum is just the local sum, divide by the number of points (local tile height)
-        return local_sum / static_cast<float>(mLocalTileSize[1]);
+    const int MIN_ITER_FOR_PARALLEL = 512; // Příklad: paralelizovat jen pro > 512 řádků
+
+#pragma omp parallel for simd reduction(+:local_sum) schedule(static) aligned(localData:64) // Příklad zarovnání 64B
+    for (int y_buffer = start_y_buffer; y_buffer < end_y_buffer; ++y_buffer) {
+        // Přímý výpočet indexu
+        size_t index = static_cast<size_t>(y_buffer) * localBufferWidth + static_cast<size_t>(col_index_buffer);
+        local_sum += (localData[index]); // Sčítáme do double
     }
 
     float global_sum = 0.0;
@@ -1048,7 +1051,7 @@ float ParallelHeatSolver::computeMiddleColumnAverageTemperatureSequential(const 
     const std::size_t middleColIndex = edgeSize / 2; // Index of the middle column in the global grid
 
     // Parallelize the loop over the rows using OpenMP
-#pragma omp parallel for reduction(+:middleColSum) schedule(static)
+#pragma omp parallel for simd reduction(+:middleColSum) schedule(static) aligned(globalData:64) // Příklad zarovnání 64B
     for (std::size_t y = 0; y < edgeSize; ++y) {
         // Calculate the linear index for the point in the middle column for row y
         std::size_t index = y * edgeSize + middleColIndex;
